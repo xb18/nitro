@@ -102,6 +102,9 @@ importers:
       '@types/node':
         specifier: ^26.6.6
         version: 26.6.6
+      '@types/picomatch':
+        specifier: ^4.0.3
+        version: 4.0.3
       '@types/semver':
         specifier: ^7.8.0
         version: 7.8.0
@@ -234,6 +237,9 @@ importers:
       perfect-debounce:
         specifier: ^2.1.0
         version: 2.1.0
+      picomatch:
+        specifier: ^4.0.7
+        version: 4.0.7
       pkg-types:
         specifier: ^2.4.0
         version: 2.4.0
@@ -3372,6 +3378,9 @@ packages:
 
   '@types/node@8.10.66':
     resolution: {integrity: sha512-tktOkFUA4kXx2hhhrB8bIFb5TbwzS4uOhKEmwiD+NoiL0qtP2OQ9mFldbgD4dV1djrlBYP6eBuQZiWjuHUpqFw==}
+
+  '@types/picomatch@4.0.3':
+    resolution: {integrity: sha512-iG0T6+nYJ9FAPmx9SsUlnwcq1ZVRuCXcVEvWnntoPlrOpwtSTKNDC9uVAxTsC3PUvJ+99n4RpAcNgBbHX3JSnQ==}
 
   '@types/qs@6.15.1':
     resolution: {integrity: sha512-GZHUBZR9hckSUhrxmp1nG6NwdpM9fCunJwyThLW1X3AyHgd9IlHb6VANpQQqDr2o/qQp6McZ3y/IA2rVzKzSbw==}
@@ -10126,6 +10135,8 @@ snapshots:
       undici-types: 8.9.0
 
   '@types/node@8.10.66': {}
+
+  '@types/picomatch@4.0.3': {}
 
   '@types/qs@6.15.1': {}
 
