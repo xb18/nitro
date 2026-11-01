@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "pathe";
@@ -5,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Nitro } from "nitro/types";
 import { PluginContainer } from "../../src/build/bun/_plugins.ts";
 import { fromRollupConfig } from "../../src/build/bun/_rollup-config.ts";
+import { writeOutput } from "../../src/build/bun/_output.ts";
 
 describe.runIf(process.versions.bun)("bun builder plugin container", () => {
   let rootDir: string;
@@ -138,6 +140,50 @@ describe.runIf(process.versions.bun)("bun builder plugin container", () => {
     const resolveId = (plugins[0]!.resolveId as { handler: (id: string) => unknown }).handler;
     expect(resolveId("ext-a")).toEqual({ id: "ext-a", external: true });
     expect(resolveId("ext-b")).toEqual({ id: "ext-b", external: true });
+  });
+
+  it("writes assets emitted by `renderChunk`, not the ones deleted by `generateBundle`", async () => {
+    const container = new PluginContainer(
+      [
+        {
+          name: "test:assets",
+          renderChunk() {
+            this.emitFile({ type: "asset", fileName: "render.txt", source: "render" });
+            return null;
+          },
+          generateBundle(_options, bundle) {
+            delete bundle["deleted.txt"];
+          },
+        },
+      ],
+      {
+        rootDir,
+        conditions: [],
+        extensions: [],
+        isExternal: () => false,
+        watchMode: false,
+        onWarn: () => {},
+      }
+    );
+    container.emittedFiles.set("deleted", { fileName: "deleted.txt", source: "deleted" });
+    const dir = join(rootDir, "output");
+    await writeOutput(container, {
+      outputs: [
+        {
+          path: "./index.mjs",
+          kind: "entry-point",
+          text: async () => "export {};",
+          bytes: async () => new Uint8Array(),
+        },
+      ],
+      meta: () => undefined,
+      dir,
+      format: "es",
+      sourcemap: false,
+    });
+    expect(existsSync(join(dir, "index.mjs"))).toBe(true);
+    expect(existsSync(join(dir, "render.txt"))).toBe(true);
+    expect(existsSync(join(dir, "deleted.txt"))).toBe(false);
   });
 
   it("does not parse relative `export *`", async () => {

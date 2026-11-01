@@ -58,7 +58,6 @@ export async function writeOutput(
       bundle[fileName] ??= toAsset(fileName, source);
     }
   };
-  emitAssets();
 
   const chunks = Object.values(bundle).filter((output) => output.type === "chunk");
   const meta = { chunks: Object.fromEntries(chunks.map((chunk) => [chunk.fileName, chunk])) };
@@ -75,7 +74,8 @@ export async function writeOutput(
     chunk.code = pragma + chunk.code;
   }
 
-  // Only assets emitted by `generateBundle` hooks are added after them (others can be deleted)
+  // Assets emitted until `renderChunk`, then only the ones of `generateBundle` (others can be deleted)
+  emitAssets();
   container.emittedFiles.clear();
   await container.callBundleHook("generateBundle", [outputOptions, bundle, true]);
   emitAssets();
