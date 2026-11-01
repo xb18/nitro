@@ -2,10 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { consola } from "consola";
 import type { NitroOptions } from "nitro/types";
 import { resolve } from "pathe";
+import { assertBunRuntime } from "../../build/bun/_bundle.ts";
 import { resolveRolldown } from "../../build/rolldown/_import.ts";
 import { ensureDep, isDepInstalled } from "../../utils/dep.ts";
 
-const VALID_BUILDERS = ["rolldown", "rollup", "vite"] as const;
+const VALID_BUILDERS = ["rolldown", "rollup", "vite", "bun"] as const;
 
 export async function resolveBuilder(options: NitroOptions) {
   // NITRO_BUILDER environment variable
@@ -28,6 +29,11 @@ export async function resolveBuilder(options: NitroOptions) {
       throw new Error(
         `Invalid nitro builder "${options.builder}". Valid builders are: ${VALID_BUILDERS.join(", ")}.`
       );
+    }
+    // `Bun.build` is provided by the runtime
+    if (options.builder === "bun") {
+      assertBunRuntime();
+      return;
     }
     // Check if the builder package is installed (`rolldown` and `vite` are resolved when used)
     const pkg = options.builder;

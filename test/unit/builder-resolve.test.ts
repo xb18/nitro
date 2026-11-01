@@ -99,6 +99,16 @@ describe("resolveBuilder", () => {
     expect(await resolve({ dev: false, builder: "vite" })).toBe("vite");
   });
 
+  it.runIf(process.versions.bun)("keeps an explicit bun builder with the Bun runtime", async () => {
+    expect(await resolve({ dev: false, builder: "bun" })).toBe("bun");
+  });
+
+  it.skipIf(process.versions.bun)("rejects the bun builder without the Bun runtime", async () => {
+    await expect(resolve({ dev: false, builder: "bun" })).rejects.toThrow(
+      "The `bun` builder requires the Bun runtime"
+    );
+  });
+
   it("keeps an explicit `builder: false`", async () => {
     state.rolldown = "/rolldown/index.mjs";
     expect(await resolve({ dev: false, builder: false })).toBe(false);

@@ -17,6 +17,9 @@ export default function routing(nitro: Nitro) {
 
       const traceH3 = !!nitro.options.tracingChannel?.h3;
 
+      // Not imported otherwise: bundlers can keep the builtins it imports (e.g. Bun)
+      const hasNodeHandlers = allHandlers.some((h) => h.format === "node");
+
       const serverEntry = nitro.options.serverEntry;
       const webServerEntry =
         serverEntry && serverEntry.handler && serverEntry.format !== "node"
@@ -30,8 +33,7 @@ export default function routing(nitro: Nitro) {
         preMerge: true,
       });
 
-      return /* js */ `
-import * as srvxNode from "srvx/node"
+      return /* js */ `${hasNodeHandlers ? `\nimport * as srvxNode from "srvx/node"` : ""}
 import * as h3 from "h3";${traceH3 ? `\nimport { wrapHandlerWithTracing } from "h3/tracing";` : ""}
 
 ${routeRulesModule}
