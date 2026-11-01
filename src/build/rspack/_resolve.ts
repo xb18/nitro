@@ -1,4 +1,4 @@
-import type { Compilation, ExternalItemFunctionData } from "@rspack/core";
+import type { Compiler, ExternalItemFunctionData } from "@rspack/core";
 import { builtinModules } from "node:module";
 import { fileURLToPath } from "node:url";
 import { dirname, isAbsolute } from "pathe";
@@ -20,8 +20,8 @@ const BARE_IMPORT_RE = /^(?![./#\0]|[a-z]:[\\/]|[a-z][\w+.-]*:)/i;
 export interface ModuleResolverOptions {
   host: PluginHost;
   virtual: VirtualPlaceholders;
-  /** Current compilation (to resolve with Rspack). */
-  compilation: () => Compilation | undefined;
+  /** Compiler (to resolve with Rspack). */
+  compiler: () => Compiler | undefined;
   /** Externals that are not resolved (builtins and `external` of the preset). */
   externals?: string[];
   /** `external` option of `rollupConfig` (matched before the request is resolved). */
@@ -132,7 +132,7 @@ export class ModuleResolver {
   }
 
   async resolveWithRspack(source: string, importer: string | undefined, kind?: ImportKind) {
-    const compiler = this.opts.compilation()?.compiler;
+    const compiler = this.opts.compiler();
     if (!compiler) {
       return;
     }

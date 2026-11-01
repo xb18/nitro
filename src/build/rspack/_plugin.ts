@@ -39,6 +39,7 @@ export class RollupPluginsHost implements RspackPluginInstance {
   readonly host: PluginHost;
   readonly virtual: VirtualPlaceholders;
   readonly resolver: ModuleResolver;
+  compiler?: Compiler;
   compilation?: Compilation;
   /** Assets emitted by plugins before the compilation processes its assets. */
   pendingAssets = new Map<string, AssetSource>();
@@ -63,15 +64,17 @@ export class RollupPluginsHost implements RspackPluginInstance {
     this.resolver = new ModuleResolver({
       host: this.host,
       virtual: this.virtual,
-      compilation: () => this.compilation,
+      compiler: () => this.compiler,
       ...opts,
     });
   }
 
   apply(compiler: Compiler) {
     (compiler as any)[HOST_KEY] = this;
+    this.compiler = compiler;
     compiler.hooks.beforeCompile.tapPromise(NAME, () => {
       this.assetsCompilation = undefined;
+      this.pendingAssets.clear();
       this.assetsWritten = false;
       return this.host.buildStart();
     });

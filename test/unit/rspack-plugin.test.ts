@@ -48,7 +48,8 @@ describe.skipIf(!isRspack)("rspack: plugins host", () => {
     const results: Record<string, any> = {};
     const plugin: Plugin = {
       name: "test",
-      buildStart() {
+      async buildStart() {
+        results.startResolved = await this.resolve("./dep.mjs", id("index.mjs"));
         refs.start = this.emitFile({ type: "asset", name: "start.txt", source: "start" });
         this.emitFile({ type: "asset", fileName: "delete-me.txt", source: "" });
       },
@@ -89,6 +90,7 @@ describe.skipIf(!isRspack)("rspack: plugins host", () => {
     };
     const pluginsHost = await build(dir, plugin);
 
+    expect(results.startResolved).toMatchObject({ id: id("dep.mjs") });
     expect(results.index).toMatchObject({
       id: id("index.mjs"),
       isEntry: true,
@@ -155,9 +157,7 @@ function createHost() {
   const resolveSpy = vi.fn((_ctx, _dir, _request, _resolveCtx, callback) => {
     callback(new Error("Not found"));
   });
-  pluginsHost.compilation = {
-    compiler: { resolverFactory: { get: () => ({ resolve: resolveSpy }) } },
-  } as any;
+  pluginsHost.compiler = { resolverFactory: { get: () => ({ resolve: resolveSpy }) } } as any;
   return { pluginsHost, resolveSpy, warn };
 }
 
