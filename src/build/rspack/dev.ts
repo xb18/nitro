@@ -148,6 +148,9 @@ export async function watchDev(
           nitro.hooks.callHook("dev:error", buildError);
           return;
         }
+        if (stats?.hasWarnings()) {
+          nitro.logger.warn(stats.toString("errors-warnings"));
+        }
         nitro.hooks.callHook("compiled", nitro);
         if (nitro.options.logging.buildSuccess) {
           nitro.logger.success(`Server built`, start ? `in ${Date.now() - start}ms` : "");
