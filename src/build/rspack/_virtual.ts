@@ -11,6 +11,8 @@ export class VirtualPlaceholders {
   readonly dir: string;
   /** Virtual module ids by placeholder path. */
   readonly ids = new Map<string, string>();
+  /** Requests by id (cleared per compilation, files can be added or removed in between). */
+  readonly requests = new Map<string, string>();
 
   constructor(dir: string) {
     this.dir = dir;
@@ -18,6 +20,29 @@ export class VirtualPlaceholders {
 
   /** Resolved id to request: absolute file paths as-is, others to a placeholder file. */
   toRequest(id: string): string {
+    let request = this.requests.get(id);
+    if (!request) {
+      request = this.createRequest(id);
+      this.requests.set(id, request);
+    }
+    return request;
+  }
+
+  clearRequests() {
+    this.requests.clear();
+  }
+
+  /** Module resource (or issuer, native path) to its plugin id. */
+  toId(resource: string): string {
+    return this.lookup(resource) ?? resource;
+  }
+
+  /** Whether a module resource (or issuer) is a virtual module. */
+  isVirtual(resource: string): boolean {
+    return this.lookup(resource) !== undefined;
+  }
+
+  private createRequest(id: string): string {
     const path = id.split("?")[0];
     if (isAbsolute(path) && existsSync(path)) {
       return id;
@@ -35,13 +60,11 @@ export class VirtualPlaceholders {
     return placeholder;
   }
 
-  /** Module resource (or issuer, native path) to its plugin id. */
-  toId(resource: string): string {
-    return this.ids.get(normalize(resource)) ?? resource;
-  }
-
-  /** Whether a module resource (or issuer) is a virtual module. */
-  isVirtual(resource: string): boolean {
-    return this.ids.has(normalize(resource));
+  /** Placeholder paths use `/` (resources have native separators). */
+  private lookup(resource: string): string | undefined {
+    return (
+      this.ids.get(resource) ??
+      (resource.includes("\\") ? this.ids.get(normalize(resource)) : undefined)
+    );
   }
 }

@@ -13,7 +13,7 @@ import { PluginHost } from "./_host.ts";
 import { VirtualPlaceholders } from "./_virtual.ts";
 import { chainSourceMaps } from "./_sourcemap.ts";
 import { writeAsset } from "./_bundle.ts";
-import { getModuleInfo } from "./_modules.ts";
+import { compilationModuleIds, getModuleInfo } from "./_modules.ts";
 import { generateBundle, renderChunks, writeBundle } from "./_output.ts";
 import { ModuleResolver } from "./_resolve.ts";
 import type { ModuleResolverOptions } from "./_resolve.ts";
@@ -56,7 +56,8 @@ export class RollupPluginsHost implements RspackPluginInstance {
     this.virtual = new VirtualPlaceholders(join(nitro.options.buildDir, "rspack/virtual"));
     this.host = new PluginHost(nitro, plugins, {
       resolve: (source, importer, kind) => this.resolver.resolveWithRspack(source, importer, kind),
-      getModuleIds: () => this.moduleIds(),
+      getModuleIds: () =>
+        this.compilation ? compilationModuleIds(this.compilation, (r) => this.virtual.toId(r)) : [],
       getModuleInfo: (id) =>
         this.compilation ? getModuleInfo(this.compilation, id, (r) => this.virtual.toId(r)) : null,
       emitAsset: (fileName, source) => this.emitAsset(fileName, source),
@@ -89,6 +90,7 @@ export class RollupPluginsHost implements RspackPluginInstance {
     compiler.hooks.thisCompilation.tap(NAME, (compilation) => {
       this.compilation = compilation;
       this.resolver.clear();
+      this.virtual.clearRequests();
       compilation.hooks.finishModules.tapPromise(NAME, () => this.host.buildEnd());
       compilation.hooks.processAssets.tap(
         { name: NAME, stage: Compilation.PROCESS_ASSETS_STAGE_ADDITIONAL },
@@ -117,7 +119,8 @@ export class RollupPluginsHost implements RspackPluginInstance {
 
     compiler.hooks.normalModuleFactory.tap(NAME, (nmf) => {
       nmf.hooks.beforeResolve.tapPromise(NAME, async (data) => {
-        if (data.request.includes("!")) {
+        // Static externals are not resolved (like Rolldown, they are external before the plugins)
+        if (data.request.includes("!") || this.resolver.staticExternals.has(data.request)) {
           return;
         }
         const issuer = data.contextInfo.issuer;
@@ -179,15 +182,6 @@ export class RollupPluginsHost implements RspackPluginInstance {
       writeAsset(this.assetsCompilation, fileName, source);
     } else {
       this.pendingAssets.set(fileName, source);
-    }
-  }
-
-  *moduleIds(): Iterable<string> {
-    for (const module of this.compilation?.modules || []) {
-      const resource = (module as { resource?: string }).resource;
-      if (resource) {
-        yield this.virtual.toId(resource);
-      }
     }
   }
 }

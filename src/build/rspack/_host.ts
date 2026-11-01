@@ -36,6 +36,8 @@ export class PluginHost {
   readonly opts: PluginHostOptions;
   readonly hooks: Record<HookName, Hook[]>;
   readonly files = new EmittedFiles();
+  /** `resolveId` hooks whose filter matches a source, by source. */
+  readonly resolveIdHooks = new Map<string, Hook[]>();
 
   constructor(nitro: Nitro, plugins: Plugin[], opts: PluginHostOptions) {
     this.nitro = nitro;
@@ -86,7 +88,7 @@ export class PluginHost {
 
   /** Whether the `resolveId` filter of a hook matches the source (otherwise it does not need to run). */
   mayResolveId(source: string): boolean {
-    return this.hooks.resolveId.some((hook) => matchFilter(hook.filter?.id, source));
+    return this.matchingResolveIdHooks(source).length > 0;
   }
 
   async resolveId(
@@ -94,13 +96,12 @@ export class PluginHost {
     importer: string | undefined,
     opts: { skip?: Set<Plugin>; fallback?: boolean; isEntry?: boolean; kind?: ImportKind } = {}
   ): Promise<ResolvedId | undefined> {
-    for (const hook of this.hooks.resolveId) {
-      if (opts.skip?.has(hook.plugin) || !matchFilter(hook.filter?.id, source)) {
+    for (const hook of this.matchingResolveIdHooks(source)) {
+      if (opts.skip?.has(hook.plugin)) {
         continue;
       }
-      const skip = new Set(opts.skip).add(hook.plugin);
       const result = await hook.handler.call(
-        this.context(hook.plugin, { skip, kind: opts.kind }),
+        this.context(hook.plugin, { skip: opts.skip, kind: opts.kind }),
         source,
         importer,
         {
@@ -179,6 +180,16 @@ export class PluginHost {
       code = hookResultCode(code, result, maps);
     }
     return code;
+  }
+
+  /** `resolveId` hooks whose filter matches the source (filters do not change). */
+  matchingResolveIdHooks(source: string): Hook[] {
+    let hooks = this.resolveIdHooks.get(source);
+    if (!hooks) {
+      hooks = this.hooks.resolveId.filter((hook) => matchFilter(hook.filter?.id, source));
+      this.resolveIdHooks.set(source, hooks);
+    }
+    return hooks;
   }
 
   context(

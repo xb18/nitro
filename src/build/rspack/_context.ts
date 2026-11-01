@@ -14,7 +14,11 @@ export interface HookContextOptions {
 export function createPluginContext(
   host: PluginHost,
   plugin: Plugin,
-  opts: HookContextOptions & { skip?: Set<Plugin>; kind?: ImportKind } = {}
+  opts: HookContextOptions & {
+    /** Plugins skipped by the hook calling this one (`this.resolve` also skips the plugin itself). */
+    skip?: Set<Plugin>;
+    kind?: ImportKind;
+  } = {}
 ) {
   const logger = host.nitro.logger;
   const format = (log: string | { message: string }) =>
@@ -28,7 +32,8 @@ export function createPluginContext(
     ) =>
       host
         .resolveId(source, importer, {
-          skip: resolveOpts?.skipSelf === false ? undefined : opts.skip || new Set([plugin]),
+          // Like Rollup, plugins skipped by the calling hook stay skipped with `skipSelf: false`
+          skip: resolveOpts?.skipSelf === false ? opts.skip : new Set(opts.skip).add(plugin),
           isEntry: resolveOpts?.isEntry,
           kind: resolveOpts?.kind || opts.kind,
           fallback: true,
