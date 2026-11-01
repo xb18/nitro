@@ -30,11 +30,11 @@ export async function buildProduction(
     const stats = await new Promise<Stats | undefined>((resolve, reject) =>
       compiler.run((error, stats) => (error ? reject(error) : resolve(stats)))
     ).finally(() => new Promise((resolve) => compiler.close(resolve)));
-    if (stats?.hasWarnings()) {
-      nitro.logger.warn(stats.toString("errors-warnings"));
-    }
     if (stats?.hasErrors()) {
       throw new Error(`Rspack build failed:\n${stats.toString("errors-only")}`);
+    }
+    if (stats?.hasWarnings()) {
+      nitro.logger.warn(stats.toString("errors-warnings"));
     }
     // Split initial chunks (`_libs/*`) come first in the files of the entrypoint
     const entryChunk = stats?.compilation.entrypoints.get("index")?.getEntrypointChunk();
@@ -45,7 +45,7 @@ export async function buildProduction(
   const output = entryFileName
     ? { output: [{ type: "chunk", isEntry: true, fileName: entryFileName }] }
     : undefined;
-  const buildInfo = await writeBuildInfo(nitro, output as Parameters<typeof writeBuildInfo>[1]);
+  await writeBuildInfo(nitro, output as Parameters<typeof writeBuildInfo>[1]);
 
   if (!nitro.options.static) {
     if (nitro.options.logging.buildSuccess) {
