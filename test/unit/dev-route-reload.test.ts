@@ -12,9 +12,9 @@ afterAll(() => {
   }
 });
 
-const builders = [process.env.NITRO_BUILDER === "rspack" ? "rspack" : "rolldown"] as const;
+const builder = (process.env.NITRO_BUILDER as "rollup" | "rolldown" | "rspack") || "rolldown";
 
-describe.each(builders)("dev route reload (%s)", (builder) => {
+describe(`dev route reload (${builder})`, () => {
   // TODO: rspack dev on Windows (https://github.com/nitrojs/nitro/issues/4948)
   it.skipIf(builder === "rspack" && isWindows)(
     "serves added routes and stops serving removed ones",
