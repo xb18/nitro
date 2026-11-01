@@ -14,6 +14,8 @@ export function pluginContext(
   opts: {
     plugin: Plugin;
     skip?: Set<Plugin>;
+    /** Module of the `load` or `transform` hook (`this.parse` uses its language). */
+    id?: string;
     oxc?: OXC;
     watchMode: boolean;
     onWarn: (message: string) => void;
@@ -38,8 +40,9 @@ export function pluginContext(
       id,
       code: (await container.load(id))?.contents ?? null,
     }),
-    // Synchronous in Rollup: `oxc` is loaded by `buildStart`
-    parse: (code: string) => opts.oxc!.parseSync("module.js", code).program,
+    // Synchronous in Rollup: `oxc` is loaded by `buildStart`. Parsed with the language of the
+    // module: `transform` hooks receive TypeScript and JSX untransformed
+    parse: (code: string) => opts.oxc!.parseSync(parseFilename(opts.id), code).program,
     addWatchFile: (file: string) => {
       container.watchFiles.add(file);
     },
@@ -67,6 +70,11 @@ export function pluginContext(
     info: () => {},
     debug: () => {},
   };
+}
+
+function parseFilename(id: string | undefined): string {
+  const path = id?.split("?")[0];
+  return path && /\.[cm]?[jt]sx?$/.test(path) ? path : "module.js";
 }
 
 function hash(input: string | Uint8Array): string {

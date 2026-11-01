@@ -173,7 +173,7 @@ export class PluginContainer {
           importer,
           { attributes: {}, custom: opts.custom, isEntry: !!opts.isEntry, kind: opts.kind },
         ],
-        opts.skip
+        { skip: opts.skip }
       );
       if (result == null) {
         continue;
@@ -214,7 +214,7 @@ export class PluginContainer {
       if (!matchFilter(hook.filter?.id, id)) {
         continue;
       }
-      const result = await this.#call(hook, [id]);
+      const result = await this.#call(hook, [id], { id });
       if (result != null) {
         code = typeof result === "string" ? result : result.code;
         moduleType = result.moduleType;
@@ -242,7 +242,9 @@ export class PluginContainer {
       if (!matchFilter(hook.filter?.id, id) || !matchFilter(hook.filter?.code, code!)) {
         continue;
       }
-      const result = await this.#call(hook, [code, id, { moduleType: moduleType || "js" }]);
+      const result = await this.#call(hook, [code, id, { moduleType: moduleType || "js" }], {
+        id,
+      });
       if (result == null) {
         continue;
       }
@@ -277,10 +279,11 @@ export class PluginContainer {
     return { contents: code!, loader };
   }
 
-  #call(hook: Hook, args: unknown[], skip?: Set<Plugin>) {
+  #call(hook: Hook, args: unknown[], opts: { skip?: Set<Plugin>; id?: string } = {}) {
     const context = pluginContext(this, {
       plugin: hook.plugin,
-      skip,
+      skip: opts.skip,
+      id: opts.id,
       oxc: this.#oxc,
       watchMode: this.#opts.watchMode,
       onWarn: this.#opts.onWarn,
