@@ -26,6 +26,8 @@ export interface ResolvedModule {
 
 export interface PluginContainerOptions {
   rootDir: string;
+  /** Explicit paths of optional dependencies (`deps.paths`). */
+  depPaths?: Record<string, string>;
   conditions: string[];
   extensions: string[];
   watchMode: boolean;
@@ -111,7 +113,7 @@ export class PluginContainer {
     this.moduleIds.clear();
     this.emittedFiles.clear();
     // `this.parse` is synchronous
-    this.#oxc ??= await importOXC({ dir: this.#opts.rootDir });
+    this.#oxc ??= await importOXC({ dir: this.#opts.rootDir, paths: this.#opts.depPaths });
     await Promise.all(this.#hooks.buildStart.map((hook) => this.#call(hook, [{}])));
   }
 

@@ -33,6 +33,7 @@ export async function getBunConfig(
 
   const container = new PluginContainer(plugins.filter(Boolean) as Plugin[], {
     rootDir: nitro.options.rootDir,
+    depPaths: nitro.options.deps?.paths,
     conditions: nitro.options.exportConditions!,
     extensions: base.extensions,
     watchMode: nitro.options.dev,
