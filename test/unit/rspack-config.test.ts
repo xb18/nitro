@@ -155,6 +155,21 @@ describe.skipIf(!isRspack)("rspack: rollupConfig options", () => {
   });
 });
 
+describe.skipIf(!isRspack)("rspack: rspackConfig", () => {
+  it.each([
+    ["an object", { "user-pkg": "user-pkg" }],
+    ["a function", () => undefined],
+  ])("keeps Nitro externals with `externals` as %s", async (_, externals) => {
+    const { config } = await rspackConfig({ rspackConfig: { externals } });
+    expect(config.externals).toEqual([externals, expect.any(Function)]);
+  });
+
+  it("concatenates `externals` arrays", async () => {
+    const { config } = await rspackConfig({ rspackConfig: { externals: ["user-pkg"] } });
+    expect(config.externals).toEqual(["user-pkg", expect.any(Function)]);
+  });
+});
+
 describe.skipIf(!isRspack)("rspack: chunk file names", () => {
   it("names chunks like the other builders, without overwriting files", async () => {
     const rootDir = createApp({

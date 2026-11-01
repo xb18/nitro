@@ -1,5 +1,10 @@
 import type { Nitro, NitroBuildPluginOption, RspackConfig } from "nitro/types";
-import type { Configuration, ExternalItemFunctionData, RuleSetRule } from "@rspack/core";
+import type {
+  Configuration,
+  ExternalItem,
+  ExternalItemFunctionData,
+  RuleSetRule,
+} from "@rspack/core";
 import type { Plugin } from "rollup";
 import { defu } from "defu";
 import { unwasmRspack } from "unwasm/plugin/rspack";
@@ -168,5 +173,11 @@ export async function getRspackConfig(
     },
   };
 
-  return defu(nitro.options.rspackConfig as Configuration, config) as RspackConfig;
+  const userConfig = nitro.options.rspackConfig as Configuration | undefined;
+  const merged = defu(userConfig, config);
+  // `defu` only concatenates arrays, Nitro's externals function has to be kept
+  if (userConfig?.externals !== undefined && !Array.isArray(userConfig.externals)) {
+    merged.externals = [userConfig.externals, ...(config.externals as ExternalItem[])];
+  }
+  return merged as RspackConfig;
 }
