@@ -176,7 +176,7 @@ export class PluginContainer {
   async load(
     id: string,
     opts: { loader?: Loader; read?: boolean } = {}
-  ): Promise<{ contents: string; loader: Loader } | undefined> {
+  ): Promise<{ contents: string | Uint8Array; loader: Loader } | undefined> {
     this.moduleIds.add(id);
     const isJS = JS_RE.test(cleanId(id));
     let code: string | undefined;
@@ -203,6 +203,11 @@ export class PluginContainer {
       // Files no `transform` hook applies to are loaded by Bun (with its own loader)
       if (!(transforms.length > 0 || opts.read) || !isFile(path)) {
         return;
+      }
+      // Files read for virtual modules (e.g. paths with `..`) are passed as bytes to Bun's loader
+      const loader = opts.loader || extensionLoader(id);
+      if (transforms.length === 0 && !SCRIPT_LOADERS.has(loader)) {
+        return { contents: await readFile(path), loader };
       }
       code = await readFile(path, "utf8");
     }

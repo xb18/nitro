@@ -56,8 +56,12 @@ export async function fromRollupConfig(
   }
 
   const plugins = await Promise.all(configs.map((config) => flatPlugins(config?.plugins)));
+  // Same as `defu` with the other builders: arrays are concatenated, `rolldownConfig` wins otherwise
+  const [rolldownExternal, rollupExternal] = configs.map((config) => config?.external);
   const external = externalPlugin(
-    configs.map((config) => config?.external).find((value) => value !== undefined)
+    Array.isArray(rolldownExternal) && Array.isArray(rollupExternal)
+      ? [...rolldownExternal, ...rollupExternal]
+      : (rolldownExternal ?? rollupExternal)
   );
 
   return { config, plugins: [...(external ? [external] : []), ...plugins.flat()] };
@@ -80,9 +84,13 @@ function externalPlugin(external: unknown): Plugin | undefined {
     typeof external === "function"
       ? (id: string, importer: string | undefined) => !!external(id, importer, false)
       : (id: string) =>
-          [external]
-            .flat()
-            .some((pattern) => (pattern instanceof RegExp ? pattern.test(id) : pattern === id));
+          [external].flat().some((pattern) => {
+            if (pattern instanceof RegExp) {
+              pattern.lastIndex = 0;
+              return pattern.test(id);
+            }
+            return pattern === id;
+          });
   return {
     name: "nitro:external",
     resolveId: {

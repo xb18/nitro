@@ -2,7 +2,9 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "pathe";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { Nitro } from "nitro/types";
 import { PluginContainer } from "../../src/build/bun/_plugins.ts";
+import { fromRollupConfig } from "../../src/build/bun/_rollup-config.ts";
 
 describe.runIf(process.versions.bun)("bun builder plugin container", () => {
   let rootDir: string;
@@ -10,6 +12,7 @@ describe.runIf(process.versions.bun)("bun builder plugin container", () => {
   const files: Record<string, string> = {
     "lib/utils/index.ts": "export const u = 1;",
     "routes/sub/v.ts": "export const v = 1;",
+    "routes/[...slug]/image.png": "\u0089PNG",
     "node_modules/esm-pkg/package.json": JSON.stringify({
       name: "esm-pkg",
       type: "module",
@@ -117,6 +120,24 @@ describe.runIf(process.versions.bun)("bun builder plugin container", () => {
       `export * from "esm-pkg"; export type a = string; export declare const b: number;`
     );
     expect(code).toContain(`export { a, b } from "esm-pkg";`);
+  });
+
+  it("loads files of virtual modules other than scripts as bytes", async () => {
+    const container = await createContainer();
+    const result = await container.load(join(rootDir, "routes/[...slug]/image.png"), {
+      read: true,
+    });
+    expect(result?.loader).toBe("file");
+    expect(result?.contents).toBeInstanceOf(Uint8Array);
+  });
+
+  it("matches global RegExps of `external` for every id", async () => {
+    const { plugins } = await fromRollupConfig({
+      options: { rollupConfig: { external: /^ext-/g }, inlineDynamicImports: false },
+    } as unknown as Nitro);
+    const resolveId = (plugins[0]!.resolveId as { handler: (id: string) => unknown }).handler;
+    expect(resolveId("ext-a")).toEqual({ id: "ext-a", external: true });
+    expect(resolveId("ext-b")).toEqual({ id: "ext-b", external: true });
   });
 
   it("does not parse relative `export *`", async () => {

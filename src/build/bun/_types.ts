@@ -20,7 +20,7 @@ export interface BunPluginBuilder {
       path: string;
       namespace: string;
       loader: BunLoader;
-    }) => BunMaybePromise<{ contents: string; loader?: BunLoader } | undefined>
+    }) => BunMaybePromise<{ contents: string | Uint8Array; loader?: BunLoader } | undefined>
   ): unknown;
 }
 

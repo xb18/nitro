@@ -53,14 +53,9 @@ export async function writeOutput(
     }
   }
 
-  // Assets emitted by `generateBundle` hooks are added after them (others can be deleted)
-  const emitted = new Set<string>();
   const emitAssets = () => {
-    for (const [referenceId, { fileName, source }] of container.emittedFiles) {
-      if (!emitted.has(referenceId)) {
-        emitted.add(referenceId);
-        bundle[fileName] ??= toAsset(fileName, source);
-      }
+    for (const { fileName, source } of container.emittedFiles.values()) {
+      bundle[fileName] ??= toAsset(fileName, source);
     }
   };
   emitAssets();
@@ -80,6 +75,8 @@ export async function writeOutput(
     chunk.code = pragma + chunk.code;
   }
 
+  // Only assets emitted by `generateBundle` hooks are added after them (others can be deleted)
+  container.emittedFiles.clear();
   await container.callBundleHook("generateBundle", [outputOptions, bundle, true]);
   emitAssets();
 

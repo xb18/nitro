@@ -69,6 +69,8 @@ export async function rewriteExternalStarExports(
       opts.names.set(external, names);
     }
     const result = await names.catch((error: unknown) => {
+      // Retried on the next build (e.g. once the dependency is installed in dev)
+      opts.names.delete(external);
       throw new Error(
         `Could not read the exports of \`${specifier}\`, re-exported with \`export *\` by \`${opts.id}\`. Bun does not support \`export *\` from external modules (https://github.com/oven-sh/bun/issues/15997): re-export its names explicitly or use another builder.`,
         { cause: error }

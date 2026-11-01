@@ -95,11 +95,12 @@ export function resolveLoader(
   return opts.fallback;
 }
 
-/** Bun loader of a file by its extension (for files read by Nitro), defaulting to `js`. */
+/** Bun loader of a file by its extension (for files read by Nitro), defaulting to `file`. */
 export function extensionLoader(id: string): BunLoader {
-  return (
-    EXT_LOADERS[/\.(\w+)$/.exec(cleanId(id))?.[1] || ""] || resolveLoader(id, { fallback: "js" })
-  );
+  if (JS_RE.test(cleanId(id))) {
+    return resolveLoader(id, { fallback: "js" });
+  }
+  return EXT_LOADERS[/\.(\w+)$/.exec(cleanId(id))?.[1] || ""] || "file";
 }
 
 // String patterns match ids as globs and code as substrings

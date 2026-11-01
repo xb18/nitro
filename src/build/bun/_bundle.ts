@@ -14,7 +14,9 @@ export async function bundle(
   await container.buildStart();
   let result: BunBuildOutput;
   try {
-    result = await getBun().build({ ...config, throw: false });
+    // Nitro writes the output itself (`outdir` is ignored), and reads module ids from the metafile
+    const { outdir: _outdir, ...options } = config;
+    result = await getBun().build({ ...options, metafile: true, throw: false });
     if (!result.success) {
       throw new AggregateError(
         result.logs,

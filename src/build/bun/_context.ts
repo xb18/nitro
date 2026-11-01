@@ -39,7 +39,9 @@ export function pluginContext(
     },
     load: async ({ id }: { id: string }) => ({
       id,
-      code: (await container.load(id))?.contents ?? null,
+      code: await container
+        .load(id)
+        .then((result) => (typeof result?.contents === "string" ? result.contents : null)),
     }),
     // Synchronous in Rollup: `oxc` is loaded by `buildStart`. Parsed with the language of the
     // module: `transform` hooks receive TypeScript and JSX untransformed

@@ -85,6 +85,7 @@ export async function createNitro(
 }
 
 let _rollupBeforeWarned = false;
+let _rollupBeforeBunWarned = false;
 
 function callRollupBeforeHooks(nitro: Nitro, config: NitroBuildConfig) {
   return nitro.hooks.callHookWith(
@@ -93,8 +94,8 @@ function callRollupBeforeHooks(nitro: Nitro, config: NitroBuildConfig) {
         return;
       }
       if (config.bun) {
-        if (!_rollupBeforeWarned) {
-          _rollupBeforeWarned = true;
+        if (!_rollupBeforeBunWarned) {
+          _rollupBeforeBunWarned = true;
           nitro.logger.warn(
             "The deprecated `rollup:before` hook is not called with the `bun` builder. Use `build:config` instead."
           );
