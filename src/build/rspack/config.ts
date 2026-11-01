@@ -102,11 +102,8 @@ export async function getRspackConfig(
         ? "nosources-source-map"
         : "source-map"
       : false,
-    cache: nitro.options.dev,
-    stats: "none",
     infrastructureLogging: { level: "warn" },
-    performance: false,
-    node: nitro.options.node ? { __dirname: "node-module", __filename: "node-module" } : false,
+    node: nitro.options.node ? undefined : false,
     externalsType: "module-import",
     externals: [(data: ExternalItemFunctionData) => pluginsHost.externals(data)],
     resolve: {
@@ -129,7 +126,6 @@ export async function getRspackConfig(
           loader: LOADER_PATH,
           virtualDir: pluginsHost.virtual.dir,
           hooks: pluginsHost.host.hooks,
-          rspackVersion: rspack.rspackVersion,
         }),
         swcRule,
       ],
@@ -152,8 +148,6 @@ export async function getRspackConfig(
       minimize: !!nitro.options.minify,
       nodeEnv: false,
       splitChunks: asyncChunks && chunkNames.splitChunks(chunkFilename),
-      // Readable ids in development, without module paths in production builds
-      chunkIds: nitro.options.dev ? "named" : "deterministic",
     },
     output: {
       path: nitro.options.output.serverDir,
@@ -163,8 +157,6 @@ export async function getRspackConfig(
       assetModuleFilename: "_assets/[name]-[hash][ext]",
       publicPath: "auto",
       library: { type: "module" },
-      chunkFormat: "module",
-      chunkLoading: "import",
       asyncChunks,
       devtoolModuleFilenameTemplate: moduleFilenameTemplate({
         rootDir: nitro.options.rootDir,
