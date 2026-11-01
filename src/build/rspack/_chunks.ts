@@ -77,7 +77,7 @@ export class ChunkNames implements RspackPluginInstance {
     const names = new Map<string | number, string>();
     const chunks = [...compilation.chunks]
       .filter((chunk) => chunk.id != null && !isEntryChunk(compilation, chunk))
-      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      .sort((a, b) => compareIds(String(a.id), String(b.id)));
     for (const chunk of chunks) {
       const moduleIds = chunkModuleIds(compilation, chunk, this.toId).map(chunkModuleId);
       const name = chunk.name || nameFromId(moduleIds.at(-1)) || String(chunk.id);
@@ -114,4 +114,8 @@ function uniqueName(fileName: string, used: Set<string>): string {
   }
   used.add(name.toLowerCase());
   return name;
+}
+
+function compareIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
