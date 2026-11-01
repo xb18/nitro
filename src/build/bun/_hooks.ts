@@ -1,7 +1,7 @@
 import type { Plugin } from "rollup";
 import type { BunLoader } from "./_types.ts";
 import { existsSync } from "node:fs";
-import { isAbsolute } from "pathe";
+import { isAbsolute, join } from "pathe";
 
 export const HOOK_NAMES = [
   "buildStart",
@@ -46,11 +46,15 @@ export function getHooks(plugins: Plugin[], name: HookName): Hook[] {
     .sort((a, b) => a.order - b.order);
 }
 
-/** Whether `value` matches a hook filter (string patterns are matched exactly). */
-export function matchFilter(filter: StringFilter | undefined, value: string): boolean {
+/** Whether `input` matches a hook filter (string patterns match ids as globs and code as substrings). */
+export function matchFilter(
+  filter: StringFilter | undefined,
+  input: { id: string } | { code: string }
+): boolean {
   if (!filter) {
     return true;
   }
+  const value = "id" in input ? input.id : input.code;
   const { include, exclude } = (
     typeof filter === "string" || filter instanceof RegExp || Array.isArray(filter)
       ? { include: filter }
@@ -58,7 +62,7 @@ export function matchFilter(filter: StringFilter | undefined, value: string): bo
   ) as { include?: MaybeArray<string | RegExp>; exclude?: MaybeArray<string | RegExp> };
   const test = (pattern: string | RegExp) => {
     if (typeof pattern === "string") {
-      return pattern === value;
+      return "id" in input ? matchGlob(pattern, value) : value.includes(pattern);
     }
     pattern.lastIndex = 0;
     return pattern.test(value);
@@ -89,4 +93,19 @@ export function resolveLoader(
     return ext as BunLoader;
   }
   return opts.fallback;
+}
+
+const globs = new Map<string, { match: (path: string) => boolean }>();
+
+// Same as Rollup: relative patterns (not starting with `**`) are resolved from the working directory
+function matchGlob(pattern: string, id: string): boolean {
+  let glob = globs.get(pattern);
+  if (!glob) {
+    const { Glob } = (globalThis as any).Bun;
+    glob = new Glob(
+      pattern.startsWith("**") || isAbsolute(pattern) ? pattern : join(process.cwd(), pattern)
+    ) as { match: (path: string) => boolean };
+    globs.set(pattern, glob);
+  }
+  return glob.match(id);
 }

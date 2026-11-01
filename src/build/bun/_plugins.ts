@@ -163,7 +163,7 @@ export class PluginContainer {
     opts: { kind?: string; isEntry?: boolean; custom?: unknown; skip?: Set<Plugin> } = {}
   ): Promise<ResolvedModule | undefined> {
     for (const hook of this.#hooks.resolveId) {
-      if (opts.skip?.has(hook.plugin) || !matchFilter(hook.filter?.id, id)) {
+      if (opts.skip?.has(hook.plugin) || !matchFilter(hook.filter?.id, { id })) {
         continue;
       }
       const result = await this.#call(
@@ -211,7 +211,7 @@ export class PluginContainer {
     let code: string | undefined;
     let moduleType: string | undefined;
     for (const hook of this.#hooks.load) {
-      if (!matchFilter(hook.filter?.id, id)) {
+      if (!matchFilter(hook.filter?.id, { id })) {
         continue;
       }
       const result = await this.#call(hook, [id], { id });
@@ -226,7 +226,7 @@ export class PluginContainer {
       const path = cleanId(id);
       // Files no `transform` hook applies to are loaded by Bun (with its own loader)
       const hasTransforms = this.#hooks.transform.some(
-        (hook) => isJS || (hook.filter?.id && matchFilter(hook.filter.id, id))
+        (hook) => isJS || (hook.filter?.id && matchFilter(hook.filter.id, { id }))
       );
       if (!isFile(path) || !(hasTransforms || opts.read)) {
         return;
@@ -239,7 +239,10 @@ export class PluginContainer {
       if (!isJS && !loaded && !hook.filter?.id) {
         continue;
       }
-      if (!matchFilter(hook.filter?.id, id) || !matchFilter(hook.filter?.code, code!)) {
+      if (
+        !matchFilter(hook.filter?.id, { id }) ||
+        !matchFilter(hook.filter?.code, { code: code! })
+      ) {
         continue;
       }
       const result = await this.#call(hook, [code, id, { moduleType: moduleType || "js" }], {
