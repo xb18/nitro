@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { basename, extname } from "pathe";
 import type { OXC } from "../../utils/oxc.ts";
 import type { PluginContainer } from "./_plugins.ts";
+import { parseFilename } from "./_hooks.ts";
 
 /**
  * The `this` of the hooks of `plugin` (a subset of Rollup's plugin context).
@@ -32,7 +33,7 @@ export function pluginContext(
       const nextSkip = resolveOpts.skipSelf === false ? skip : new Set([...(skip || []), plugin]);
       return (
         (await container.resolveId(id, importer, { ...resolveOpts, skip: nextSkip })) ||
-        container.defaultResolve(id, importer) ||
+        container.defaultResolve(id, importer, resolveOpts) ||
         null
       );
     },
@@ -70,11 +71,6 @@ export function pluginContext(
     info: () => {},
     debug: () => {},
   };
-}
-
-function parseFilename(id: string | undefined): string {
-  const path = id?.split("?")[0];
-  return path && /\.[cm]?[jt]sx?$/.test(path) ? path : "module.js";
 }
 
 function hash(input: string | Uint8Array): string {

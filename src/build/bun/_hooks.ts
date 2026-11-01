@@ -1,6 +1,6 @@
 import type { Plugin } from "rollup";
 import type { BunLoader } from "./_types.ts";
-import { existsSync } from "node:fs";
+import { statSync } from "node:fs";
 import { isAbsolute, join } from "pathe";
 
 export const HOOK_NAMES = [
@@ -20,16 +20,28 @@ export type HookName = (typeof HOOK_NAMES)[number];
 export interface Hook {
   plugin: Plugin;
   handler: (this: any, ...args: any[]) => any;
-  filter?: { id?: StringFilter; code?: StringFilter };
+  /** Compiled `filter.id` (only set when the hook has one). */
+  id?: (id: string) => boolean;
+  /** Compiled `filter.code` (only set when the hook has one). */
+  code?: (code: string) => boolean;
 }
+
+export const JS_RE = /\.[cm]?[jt]sx?$/;
 
 type StringFilter = MaybeArray<string | RegExp> | { include?: unknown; exclude?: unknown };
 
 type MaybeArray<T> = T | T[];
 
-const LOADERS = new Set<string>(["js", "jsx", "ts", "tsx", "json", "text", "css"]);
+const LOADERS = new Set<string>(["js", "jsx", "ts", "tsx", "json", "text", "css", "toml"]);
 
-/** Hooks of the plugins named `name`, sorted by `order`. */
+const EXT_LOADERS: Record<string, BunLoader> = {
+  json: "json",
+  css: "css",
+  toml: "toml",
+  txt: "text",
+};
+
+/** Hooks of the plugins named `name`, sorted by `order`, with their filters compiled. */
 export function getHooks(plugins: Plugin[], name: HookName): Hook[] {
   const rank = (order: unknown) => (order === "pre" ? 0 : order === "post" ? 2 : 1);
   return plugins
@@ -41,44 +53,32 @@ export function getHooks(plugins: Plugin[], name: HookName): Hook[] {
       }
       // Composable filters (arrays) are not supported: handlers check their inputs too
       const filter = hook.filter && !Array.isArray(hook.filter) ? hook.filter : undefined;
-      return [{ plugin, handler, filter, order: rank(hook.order) }];
+      return [
+        {
+          plugin,
+          handler,
+          id: filter?.id && compileFilter(filter.id, matchGlob),
+          code:
+            filter?.code && compileFilter(filter.code, (pattern, code) => code.includes(pattern)),
+          order: rank(hook.order),
+        },
+      ];
     })
     .sort((a, b) => a.order - b.order);
 }
 
-/** Whether `input` matches a hook filter (string patterns match ids as globs and code as substrings). */
-export function matchFilter(
-  filter: StringFilter | undefined,
-  input: { id: string } | { code: string }
-): boolean {
-  if (!filter) {
-    return true;
-  }
-  const value = "id" in input ? input.id : input.code;
-  const { include, exclude } = (
-    typeof filter === "string" || filter instanceof RegExp || Array.isArray(filter)
-      ? { include: filter }
-      : filter
-  ) as { include?: MaybeArray<string | RegExp>; exclude?: MaybeArray<string | RegExp> };
-  const test = (pattern: string | RegExp) => {
-    if (typeof pattern === "string") {
-      return "id" in input ? matchGlob(pattern, value) : value.includes(pattern);
-    }
-    pattern.lastIndex = 0;
-    return pattern.test(value);
-  };
-  if (exclude && [exclude].flat().some(test)) {
-    return false;
-  }
-  return !include || [include].flat().some(test);
-}
-
 export function isFile(id: string): boolean {
-  return isAbsolute(id) && !/[\0?]/.test(id) && existsSync(id);
+  return isAbsolute(id) && !/[\0?]/.test(id) && !!statSync(id, { throwIfNoEntry: false })?.isFile();
 }
 
 export function cleanId(id: string): string {
   return id.split("?")[0]!;
+}
+
+/** File name to parse `id` with (its language), or `module.js`. */
+export function parseFilename(id: string | undefined): string {
+  const path = id && cleanId(id);
+  return path && JS_RE.test(path) ? path : "module.js";
 }
 
 export function resolveLoader(
@@ -93,6 +93,40 @@ export function resolveLoader(
     return ext as BunLoader;
   }
   return opts.fallback;
+}
+
+/** Bun loader of a file by its extension (for files read by Nitro), defaulting to `js`. */
+export function extensionLoader(id: string): BunLoader {
+  return (
+    EXT_LOADERS[/\.(\w+)$/.exec(cleanId(id))?.[1] || ""] || resolveLoader(id, { fallback: "js" })
+  );
+}
+
+// String patterns match ids as globs and code as substrings
+function compileFilter(
+  filter: StringFilter,
+  matchString: (pattern: string, value: string) => boolean
+): (value: string) => boolean {
+  const { include, exclude } = (
+    typeof filter === "string" || filter instanceof RegExp || Array.isArray(filter)
+      ? { include: filter }
+      : filter
+  ) as { include?: MaybeArray<string | RegExp>; exclude?: MaybeArray<string | RegExp> };
+  const compile = (patterns?: MaybeArray<string | RegExp>) => {
+    const tests = (patterns === undefined ? [] : [patterns].flat()).map((pattern) =>
+      typeof pattern === "string"
+        ? (value: string) => matchString(pattern, value)
+        : (value: string) => {
+            pattern.lastIndex = 0;
+            return pattern.test(value);
+          }
+    );
+    return tests.length > 0 ? tests : undefined;
+  };
+  const includes = compile(include);
+  const excludes = compile(exclude);
+  return (value) =>
+    !excludes?.some((test) => test(value)) && (!includes || includes.some((test) => test(value)));
 }
 
 const globs = new Map<string, { match: (path: string) => boolean }>();

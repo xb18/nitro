@@ -1,4 +1,4 @@
-import type { BunLoader as Loader, BunPlugin } from "./_types.ts";
+import type { BunLoader as Loader } from "./_types.ts";
 import type { Plugin } from "rollup";
 import { readFile } from "node:fs/promises";
 import { isBuiltin } from "node:module";
@@ -6,13 +6,14 @@ import { resolveModulePath } from "exsolve";
 import { isAbsolute, join, resolve } from "pathe";
 import { importOXC, type OXC } from "../../utils/oxc.ts";
 import { pluginContext } from "./_context.ts";
-import { rewriteExternalStarExports } from "./_reexports.ts";
+import { rewriteExternalStarExports, type ExportNames } from "./_reexports.ts";
 import {
   HOOK_NAMES,
+  JS_RE,
   cleanId,
+  extensionLoader,
   getHooks,
   isFile,
-  matchFilter,
   resolveLoader,
   type Hook,
   type HookName,
@@ -30,18 +31,18 @@ export interface PluginContainerOptions {
   depPaths?: Record<string, string>;
   conditions: string[];
   extensions: string[];
+  /** Externals of the Bun config (`external` and `packages`). */
+  isExternal: (id: string) => boolean;
   watchMode: boolean;
   onWarn: (message: string) => void;
 }
 
 export const VIRTUAL_NAMESPACE = "nitro";
 
-const JS_RE = /\.[cm]?[jt]sx?$/;
-
 const SCRIPT_LOADERS = new Set<string>(["js", "jsx", "ts", "tsx"]);
 
 /**
- * Runs Rollup plugins (`resolveId`, `load` and `transform`) in a Bun plugin.
+ * Runs Rollup plugins (`resolveId`, `load` and `transform`) in a Bun plugin (see `_bun-plugin.ts`).
  *
  * Output hooks (`renderChunk`, `resolveFileUrl`, `generateBundle`, `writeBundle`) are called by
  * `writeOutput` (see `_output.ts`) on the in-memory build result.
@@ -51,66 +52,29 @@ export class PluginContainer {
   readonly watchFiles = new Set<string>();
   /** Assets emitted by plugins, by reference id. */
   readonly emittedFiles = new Map<string, { fileName: string; source: string | Uint8Array }>();
+  /** Ids of virtual modules by their (escaped) path in Bun. */
+  readonly virtualPaths = new Map<string, string>();
 
   #opts: PluginContainerOptions;
   #hooks: Record<HookName, Hook[]>;
-  /** Ids of virtual modules by their (escaped) path in Bun. */
-  #virtualPaths = new Map<string, string>();
+  #conditions: { import: string[]; require: string[] };
   #oxc?: OXC;
-  #exportNames = new Map<string, Promise<string[]>>();
+  #exportNames = new Map<string, Promise<ExportNames>>();
 
   constructor(plugins: Plugin[], opts: PluginContainerOptions) {
     this.#opts = opts;
     this.#hooks = Object.fromEntries(
       HOOK_NAMES.map((name) => [name, getHooks(plugins, name)])
     ) as Record<HookName, Hook[]>;
-  }
-
-  bunPlugin(): BunPlugin {
-    return {
-      name: "nitro:plugins",
-      setup: (build) => {
-        build.onResolve({ filter: /.*/ }, async (args) => {
-          const isEntry = args.kind === "entry-point-build";
-          const importer = isEntry
-            ? undefined
-            : this.#virtualPaths.get(args.importer) || args.importer || undefined;
-          const resolved =
-            (await this.resolveId(args.path, importer, { kind: args.kind, isEntry })) ||
-            // Bun resolves imports of virtual modules relative to their id (not a directory)
-            (this.#virtualPaths.has(args.importer)
-              ? this.defaultResolve(args.path, importer)
-              : undefined);
-          if (!resolved) {
-            return;
-          }
-          if (resolved.external) {
-            return { path: resolved.id, external: true };
-          }
-          // Bun rejects file paths containing `..` (e.g. `[...slug].ts`): they are loaded as virtual modules
-          if (isFile(resolved.id) && !resolved.id.includes("..")) {
-            return { path: resolved.id };
-          }
-          // Bun writes module paths to the output (comments): `\0` is escaped
-          const path = resolved.id.replaceAll("\0", "\\0");
-          this.#virtualPaths.set(path, resolved.id);
-          return { path, namespace: VIRTUAL_NAMESPACE };
-        });
-        build.onLoad({ filter: /.*/, namespace: VIRTUAL_NAMESPACE }, async (args) => {
-          const id = this.#virtualPaths.get(args.path) || args.path;
-          const result = await this.load(id, { read: true });
-          if (!result) {
-            throw new Error(`Could not load virtual module \`${id}\`.`);
-          }
-          return result;
-        });
-        build.onLoad({ filter: /.*/ }, (args) => this.load(args.path, { loader: args.loader }));
-      },
+    this.#conditions = {
+      import: [...opts.conditions, "import"],
+      require: [...opts.conditions, "require"],
     };
   }
 
   async buildStart() {
     this.moduleIds.clear();
+    this.watchFiles.clear();
     this.emittedFiles.clear();
     // `this.parse` is synchronous
     this.#oxc ??= await importOXC({ dir: this.#opts.rootDir, paths: this.#opts.depPaths });
@@ -153,7 +117,7 @@ export class PluginContainer {
   moduleId(input: string): string {
     if (input.startsWith(`${VIRTUAL_NAMESPACE}:`)) {
       const path = input.slice(VIRTUAL_NAMESPACE.length + 1);
-      return this.#virtualPaths.get(path) || path;
+      return this.virtualPaths.get(path) || path;
     }
     return isAbsolute(input) || /^[a-z]{2,}:/.test(input) ? input : resolve(input);
   }
@@ -165,7 +129,7 @@ export class PluginContainer {
     opts: { kind?: string; isEntry?: boolean; custom?: unknown; skip?: Set<Plugin> } = {}
   ): Promise<ResolvedModule | undefined> {
     for (const hook of this.#hooks.resolveId) {
-      if (opts.skip?.has(hook.plugin) || !matchFilter(hook.filter?.id, { id })) {
+      if (opts.skip?.has(hook.plugin) || (hook.id && !hook.id(id))) {
         continue;
       }
       const result = await this.#call(
@@ -189,18 +153,23 @@ export class PluginContainer {
     }
   }
 
-  defaultResolve(id: string, importer: string | undefined): ResolvedModule | undefined {
+  defaultResolve(
+    id: string,
+    importer: string | undefined,
+    opts: { kind?: string } = {}
+  ): ResolvedModule | undefined {
     if (isBuiltin(id)) {
       return { id: id.includes(":") ? id : `node:${id}`, external: true };
     }
-    const from = importer && isFile(importer) ? importer : join(this.#opts.rootDir, "_index.js");
-    const path = resolveModulePath(id, {
-      from,
-      conditions: this.#opts.conditions,
+    const path = importer && cleanId(importer);
+    const resolved = resolveModulePath(id, {
+      from: path && isAbsolute(path) && !path.includes("\0") ? path : join(this.#opts.rootDir, "_"),
+      conditions: this.#conditions[opts.kind === "require-call" ? "require" : "import"],
       extensions: this.#opts.extensions,
+      suffixes: ["", "/index"],
       try: true,
     });
-    return path ? { id: path, external: false } : undefined;
+    return resolved ? { id: resolved, external: false } : undefined;
   }
 
   /** Runs `load` and `transform` hooks, or returns `undefined` to let Bun load the file. */
@@ -213,7 +182,7 @@ export class PluginContainer {
     let code: string | undefined;
     let moduleType: string | undefined;
     for (const hook of this.#hooks.load) {
-      if (!matchFilter(hook.filter?.id, { id })) {
+      if (hook.id && !hook.id(id)) {
         continue;
       }
       const result = await this.#call(hook, [id], { id });
@@ -224,32 +193,29 @@ export class PluginContainer {
       }
     }
     const loaded = code !== undefined;
+    // Files are only transformed by hooks with an `id` filter matching them (Bun has its own loaders)
+    const transforms =
+      isJS || loaded
+        ? this.#hooks.transform
+        : this.#hooks.transform.filter((hook) => hook.id?.(id));
     if (!loaded) {
       const path = cleanId(id);
       // Files no `transform` hook applies to are loaded by Bun (with its own loader)
-      const hasTransforms = this.#hooks.transform.some(
-        (hook) => isJS || (hook.filter?.id && matchFilter(hook.filter.id, { id }))
-      );
-      if (!isFile(path) || !(hasTransforms || opts.read)) {
+      if (!(transforms.length > 0 || opts.read) || !isFile(path)) {
         return;
       }
       code = await readFile(path, "utf8");
     }
     let transformed = false;
-    for (const hook of this.#hooks.transform) {
-      // Other files only by explicit `id` filters (Bun has its own loaders for them)
-      if (!isJS && !loaded && !hook.filter?.id) {
+    for (const hook of transforms) {
+      if ((hook.id && !hook.id(id)) || (hook.code && !hook.code(code!))) {
         continue;
       }
-      if (
-        !matchFilter(hook.filter?.id, { id }) ||
-        !matchFilter(hook.filter?.code, { code: code! })
-      ) {
-        continue;
-      }
-      const result = await this.#call(hook, [code, id, { moduleType: moduleType || "js" }], {
-        id,
-      });
+      const result = await this.#call(
+        hook,
+        [code, id, { moduleType: moduleType || resolveLoader(id, { fallback: "js" }) }],
+        { id }
+      );
       if (result == null) {
         continue;
       }
@@ -259,29 +225,36 @@ export class PluginContainer {
     }
     const loader = resolveLoader(id, {
       moduleType,
-      // Unchanged files keep Bun's loader (or a JSON file read for a virtual module)
-      fallback:
-        loaded || transformed
-          ? "js"
-          : opts.loader || (cleanId(id).endsWith(".json") ? "json" : "js"),
+      // Unchanged files keep Bun's loader (or the one of their extension for virtual modules)
+      fallback: loaded || transformed ? "js" : opts.loader || extensionLoader(id),
     });
     if (SCRIPT_LOADERS.has(loader)) {
       code =
         (await rewriteExternalStarExports(code!, {
           id,
+          filename: `module.${loader}`,
           oxc: this.#oxc!,
           names: this.#exportNames,
-          onWarn: this.#opts.onWarn,
-          resolveExternal: async (specifier) => {
-            const resolved = await this.resolveId(specifier, id);
-            if (resolved?.external) {
-              // Ids of externals can be placeholders (e.g. traced dependencies)
-              return this.defaultResolve(specifier, id)?.id || resolved.id;
-            }
-          },
+          resolveExternal: (specifier) => this.#resolveExternal(specifier, id),
         })) || code;
     }
     return { contents: code!, loader };
+  }
+
+  /** Path (or specifier) to import an external module with, or `undefined` if bundled. */
+  async #resolveExternal(specifier: string, importer: string): Promise<string | undefined> {
+    const resolved = await this.resolveId(specifier, importer);
+    if (resolved && !resolved.external) {
+      return;
+    }
+    const path = this.defaultResolve(specifier, importer);
+    if (path?.external) {
+      return path.id;
+    }
+    if (resolved?.external || this.#opts.isExternal(specifier)) {
+      // Ids of externals can be placeholders (e.g. traced dependencies)
+      return path?.id || resolved?.id || specifier;
+    }
   }
 
   #call(hook: Hook, args: unknown[], opts: { skip?: Set<Plugin>; id?: string } = {}) {
