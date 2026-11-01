@@ -10,6 +10,8 @@ const PRAGMA_RE = /^\/\/ @bun\b.*\n/;
 
 const FILE_URL_RE = /import\.meta\.ROLLUP_FILE_URL_(\w+)/g;
 
+const NUL_ESCAPE_RE = /(?<!\\)((?:\\\\)*)\\x00(?!\d)/g;
+
 /**
  * Writes the in-memory Bun build output to `dir`, calling the output hooks of the plugins
  * (`renderChunk`, `generateBundle` and `writeBundle`) as Rollup does.
@@ -31,8 +33,8 @@ export async function writeOutput(
     const fileName = artifact.path.replace(/^\.\//, "");
     if (artifact.kind === "entry-point" || artifact.kind === "chunk") {
       bundle[fileName] = toChunk(fileName, {
-        // Rollup plugins match `\0` ids in the output, which Bun writes as `\x00`
-        code: (await artifact.text()).replace(/\\x00(?!\d)/g, "\\0"),
+        // Rollup plugins match `\0` ids in the output, which Bun writes as `\x00` (not `\\x00`)
+        code: (await artifact.text()).replace(NUL_ESCAPE_RE, "$1\\0"),
         entry: artifact.kind === "entry-point" ? opts.entry : undefined,
         moduleIds: opts.moduleIds(artifact.path),
       });
@@ -109,8 +111,6 @@ async function renderFileUrls(
   return rendered + code.slice(index);
 }
 
-function toChunk(
-  fileName: string,
 /**
  * Bun writes the sources of source maps relative to the working directory, and virtual modules
  * in its namespace: they are namespaced as `virtual:<id>` instead (same as `nitro:sourcemap`).
@@ -131,6 +131,8 @@ function relocateSources(container: PluginContainer, code: string, dir: string):
   return JSON.stringify(map);
 }
 
+function toChunk(
+  fileName: string,
   opts: { code: string; entry?: string; moduleIds: string[] }
 ): OutputChunk {
   return {
