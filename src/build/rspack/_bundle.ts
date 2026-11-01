@@ -1,6 +1,6 @@
-import type { Chunk, Compilation } from "@rspack/core";
+import type { Asset, Chunk, Compilation } from "@rspack/core";
 import type { AssetSource } from "./_files.ts";
-import { moduleId } from "./_modules.ts";
+import { chunkModuleIds } from "./_modules.ts";
 
 /** Rollup `OutputChunk` (with the fields Rspack chunks provide) or `OutputAsset`. */
 export type BundleEntry =
@@ -9,9 +9,13 @@ export type BundleEntry =
 
 export type Bundle = Record<string, BundleEntry>;
 
+/** Entries whose code or source was assigned by a hook. */
+const changedEntries = new WeakSet<BundleEntry>();
+
 /**
  * Output bundle of the `generateBundle` and `writeBundle` hooks, from the compilation assets.
  * Chunks have their file, name, code and module ids, but no import or export information.
+ * Contents and module ids are read from the compilation when a hook accesses them.
  */
 export function createBundle(compilation: Compilation, toId: (resource: string) => string): Bundle {
   const chunks = new Map<string, Chunk>();
@@ -21,41 +25,33 @@ export function createBundle(compilation: Compilation, toId: (resource: string) 
     }
   }
   const bundle: Bundle = {};
-  for (const { name: fileName, source, info } of compilation.getAssets()) {
+  for (const asset of compilation.getAssets()) {
+    const fileName = asset.name;
     const chunk = /\.m?js$/.test(fileName) ? chunks.get(fileName) : undefined;
     if (!chunk) {
-      bundle[fileName] = {
+      const entry = {
         type: "asset",
         fileName,
         name: undefined,
         names: [],
         originalFileName: null,
         originalFileNames: [],
-        source: source.source(),
         needsCodeReference: false,
-      };
+      } as unknown as BundleEntry;
+      bundle[fileName] = lazy(entry, "source", () => assetSource(asset), true);
       continue;
     }
-    const moduleIds: string[] = [];
-    for (const module of compilation.chunkGraph.getChunkModules(chunk)) {
-      const id = moduleId(module, toId);
-      if (id) {
-        moduleIds.push(id);
-      }
-    }
-    bundle[fileName] = {
+    const entry = {
       type: "chunk",
       fileName,
       preliminaryFileName: fileName,
-      sourcemapFileName: (info.related?.sourceMap as string | undefined) ?? null,
+      sourcemapFileName: (asset.info.related?.sourceMap as string | undefined) ?? null,
       name: chunk.name || "",
-      code: source.source().toString(),
       map: null,
       isEntry: chunk.hasRuntime(),
       isDynamicEntry: !chunk.canBeInitial(),
       isImplicitEntry: false,
       facadeModuleId: null,
-      moduleIds,
       modules: {},
       exports: [],
       imports: [],
@@ -63,31 +59,23 @@ export function createBundle(compilation: Compilation, toId: (resource: string) 
       implicitlyLoadedBefore: [],
       importedBindings: {},
       referencedFiles: [],
-    };
+    } as unknown as BundleEntry;
+    lazy(entry, "code", () => assetSource(asset).toString(), true);
+    bundle[fileName] = lazy(entry, "moduleIds", () => chunkModuleIds(compilation, chunk, toId));
   }
   return bundle;
 }
 
-/** Code of a chunk or source of an asset. */
-export function entryContent(entry: BundleEntry): AssetSource {
-  return entry.type === "chunk" ? entry.code : entry.source;
-}
-
-/** Applies the changes of the `generateBundle` hooks (to the entry `contents` before them). */
-export function applyBundle(
-  compilation: Compilation,
-  bundle: Bundle,
-  contents: Map<string, AssetSource>
-) {
-  for (const fileName of contents.keys()) {
+/** Applies the changes of the `generateBundle` hooks (`original` is the bundle before them). */
+export function applyBundle(compilation: Compilation, bundle: Bundle, original: Bundle) {
+  for (const fileName of Object.keys(original)) {
     if (!bundle[fileName]) {
       compilation.deleteAsset(fileName);
     }
   }
   for (const [fileName, entry] of Object.entries(bundle)) {
-    const content = entryContent(entry);
-    if (content !== contents.get(fileName)) {
-      writeAsset(compilation, fileName, content);
+    if (entry !== original[fileName] || changedEntries.has(entry)) {
+      writeAsset(compilation, fileName, entry.type === "chunk" ? entry.code : entry.source);
     }
   }
 }
@@ -103,4 +91,33 @@ export function writeAsset(compilation: Compilation, fileName: string, source: A
   } else {
     compilation.emitAsset(fileName, rawSource);
   }
+}
+
+function assetSource(asset: Asset): AssetSource {
+  return asset.source.source();
+}
+
+/** Defines a property computed on first access (assignments mark the entry as changed). */
+function lazy(entry: BundleEntry, key: string, get: () => unknown, content?: boolean) {
+  let value: unknown;
+  let loaded = false;
+  Object.defineProperty(entry, key, {
+    enumerable: true,
+    configurable: true,
+    get: () => {
+      if (!loaded) {
+        value = get();
+        loaded = true;
+      }
+      return value;
+    },
+    set: (newValue) => {
+      value = newValue;
+      loaded = true;
+      if (content) {
+        changedEntries.add(entry);
+      }
+    },
+  });
+  return entry;
 }

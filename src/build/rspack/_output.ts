@@ -1,6 +1,6 @@
 import type { Compilation } from "@rspack/core";
 import type { PluginHost } from "./_host.ts";
-import { applyBundle, createBundle, entryContent } from "./_bundle.ts";
+import { applyBundle, createBundle } from "./_bundle.ts";
 import { chainSourceMaps } from "./_sourcemap.ts";
 import type { SourceMapStep } from "./_sourcemap.ts";
 
@@ -18,19 +18,20 @@ export async function renderChunks(host: PluginHost, compilation: Compilation) {
       if (!/\.m?js$/.test(fileName)) {
         continue;
       }
-      const asset = compilation.getAsset(fileName);
-      if (!asset) {
+      const source = compilation.getAsset(fileName)?.source;
+      if (!source) {
         continue;
       }
-      const code = asset.source.source().toString();
+      const code = source.source().toString();
       const chunkInfo = { fileName, name: chunk.name || "", isEntry: chunk.hasRuntime() };
-      const maps: SourceMapStep[] = [];
+      const maps: SourceMapStep[] | undefined = outputOpts.sourcemap ? [] : undefined;
       const rendered = await host.renderChunk(code, chunkInfo, outputOpts, maps);
       if (rendered === code) {
         continue;
       }
-      const map = outputOpts.sourcemap ? asset.source.map() : undefined;
-      const renderedMap = map && chainSourceMaps(sources, { name: fileName, map, steps: maps });
+      const map = maps && source.map();
+      const renderedMap =
+        maps && map ? chainSourceMaps(sources, { name: fileName, map, steps: maps }) : undefined;
       compilation.updateAsset(
         fileName,
         renderedMap
@@ -48,9 +49,9 @@ export async function generateBundle(
   toId: (resource: string) => string
 ) {
   const bundle = createBundle(compilation, toId);
-  const contents = new Map(Object.values(bundle).map((e) => [e.fileName, entryContent(e)]));
+  const original = { ...bundle };
   await host.bundleHook("generateBundle", outputOptions(compilation), bundle);
-  applyBundle(compilation, bundle, contents);
+  applyBundle(compilation, bundle, original);
 }
 
 /** Runs the `writeBundle` hooks (once the compilation assets are written). */

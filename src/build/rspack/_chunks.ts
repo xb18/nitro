@@ -3,14 +3,13 @@ import type {
   Compilation,
   Compiler,
   Filename,
-  Module,
   OptimizationSplitChunksOptions,
   PathData,
   RspackPluginInstance,
 } from "@rspack/core";
 import type { Nitro } from "nitro/types";
 import { getChunkName, libChunkName, NODE_MODULES_RE } from "../chunks.ts";
-import { moduleId } from "./_modules.ts";
+import { chunkModuleIds } from "./_modules.ts";
 
 const FALLBACK = "_chunks/[id].mjs";
 
@@ -63,7 +62,7 @@ export class ChunkNames implements RspackPluginInstance {
         defaultVendors: false,
         libs: {
           chunks: "all",
-          test: (module) => NODE_MODULES_RE.test(module.nameForCondition() || ""),
+          test: NODE_MODULES_RE,
           name: (module) => libChunkName(module.nameForCondition() || ""),
           filename,
           enforce: true,
@@ -80,7 +79,7 @@ export class ChunkNames implements RspackPluginInstance {
       .filter((chunk) => chunk.id != null && !isEntryChunk(compilation, chunk))
       .sort((a, b) => String(a.id).localeCompare(String(b.id)));
     for (const chunk of chunks) {
-      const moduleIds = chunkModuleIds(compilation, chunk, this.toId);
+      const moduleIds = chunkModuleIds(compilation, chunk, this.toId).map(chunkModuleId);
       const name = chunk.name || nameFromId(moduleIds.at(-1)) || String(chunk.id);
       const fileName = getChunkName({ name, moduleIds }, this.nitro).replaceAll("[name]", name);
       names.set(chunk.id!, uniqueName(fileName, used));
@@ -91,24 +90,6 @@ export class ChunkNames implements RspackPluginInstance {
 
 function isEntryChunk(compilation: Compilation, chunk: Chunk) {
   return compilation.chunkGraph.getNumberOfEntryModules(chunk) > 0;
-}
-
-/** Module ids of a chunk, in the order they finish loading (the root module last, like Rollup). */
-function chunkModuleIds(
-  compilation: Compilation,
-  chunk: Chunk,
-  toId: (resource: string) => string
-): string[] {
-  const group = [...chunk.groupsIterable][0];
-  const modules = compilation.chunkGraph
-    .getChunkModules(chunk)
-    .flatMap((module) => (module as { modules?: Module[] }).modules || [module]);
-  const order = (module: Module) => group?.getModulePostOrderIndex(module) ?? -1;
-  return modules
-    .map((module) => ({ id: moduleId(module, toId), index: order(module) }))
-    .filter((entry): entry is { id: string; index: number } => !!entry.id)
-    .sort((a, b) => a.index - b.index)
-    .map((entry) => chunkModuleId(entry.id));
 }
 
 /** Ids of the `unwasm` modules like with the other builders (bindings by their `.wasm` file). */

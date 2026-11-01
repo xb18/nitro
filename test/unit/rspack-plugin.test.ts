@@ -38,9 +38,10 @@ describe.skipIf(!isRspack)("rspack: plugins host", () => {
     onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
     writeFileSync(
       join(dir, "index.mjs"),
-      `import "./dep.mjs";\nexport const lazy = () => import("./lazy.mjs");\n`
+      `import { dep } from "./dep.mjs";\nconsole.log(dep());\nexport const lazy = () => import("./lazy.mjs");\n`
     );
-    writeFileSync(join(dir, "dep.mjs"), `export const dep = 1;\n`);
+    // Not inlined: concatenated with the entry module in production builds
+    writeFileSync(join(dir, "dep.mjs"), `export const dep = () => "dep";\n`);
     writeFileSync(join(dir, "lazy.mjs"), `export const lazy = 1;\n`);
     // Module ids are native paths (like with Rollup)
     const id = (name: string) => nativeJoin(dir, name);
@@ -71,6 +72,8 @@ describe.skipIf(!isRspack)("rspack: plugins host", () => {
           dep: this.getFileName(refs.transform!),
         };
         results.generated = Object.keys(bundle).sort();
+        results.depLate = this.getModuleInfo(id("dep.mjs"));
+        results.lazyLate = this.getModuleInfo(id("lazy.mjs"));
         delete bundle["delete-me.txt"];
         const entry = bundle["index.mjs"] as {
           code: string;
@@ -114,10 +117,9 @@ describe.skipIf(!isRspack)("rspack: plugins host", () => {
         results.fileNames.start,
       ].sort()
     );
-    expect(results.entry).toEqual({
-      isEntry: true,
-      moduleIds: expect.arrayContaining([id("index.mjs")]),
-    });
+    expect(results.entry).toEqual({ isEntry: true, moduleIds: [id("dep.mjs"), id("index.mjs")] });
+    expect(results.depLate).toMatchObject({ importers: [id("index.mjs")] });
+    expect(results.lazyLate).toMatchObject({ dynamicImporters: [id("index.mjs")] });
     expect(results.written).toEqual(
       [
         "_chunks/lazy_mjs.mjs",

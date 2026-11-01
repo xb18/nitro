@@ -1,4 +1,4 @@
-import type { Compilation, Module } from "@rspack/core";
+import type { Chunk, Compilation, Module } from "@rspack/core";
 
 /** Minimal Rollup `ModuleInfo` (`this.getModuleInfo`). */
 export interface ModuleInfo {
@@ -19,6 +19,34 @@ export function moduleId(
 ): string | undefined {
   const resource = (module as { resource?: string } | null | undefined)?.resource;
   return resource ? toId(resource) : undefined;
+}
+
+/** Modules of a chunk, with the modules of concatenated modules (production builds). */
+export function chunkModules(compilation: Compilation, chunk: Chunk): Module[] {
+  return compilation.chunkGraph.getChunkModules(chunk).flatMap(innerModules);
+}
+
+/** Module ids of a chunk, in the order they finish loading (the root module last, like Rollup). */
+export function chunkModuleIds(
+  compilation: Compilation,
+  chunk: Chunk,
+  toId: (resource: string) => string
+): string[] {
+  const group = [...chunk.groupsIterable][0];
+  const order = (module: Module) => group?.getModulePostOrderIndex(module) ?? -1;
+  return chunkModules(compilation, chunk)
+    .map((module) => ({ id: moduleId(module, toId), index: order(module) }))
+    .filter((entry): entry is { id: string; index: number } => !!entry.id)
+    .sort((a, b) => a.index - b.index)
+    .map((entry) => entry.id);
+}
+
+/** Ids of the modules of a compilation. */
+export function compilationModuleIds(
+  compilation: Compilation,
+  toId: (resource: string) => string
+): Iterable<string> {
+  return indexModules(compilation, toId).keys();
 }
 
 /** Info of a module of the compilation (from its module graph connections). */
@@ -43,7 +71,10 @@ export function getModuleInfo(
     meta: {},
   };
   for (const connection of moduleGraph.getIncomingConnections(module)) {
-    const importer = moduleId(connection.originModule, toId);
+    // The origin of connections from concatenated modules is the concatenated module
+    const importer =
+      moduleId(connection.originModule, toId) ??
+      moduleId(moduleGraph.getParentModule(connection.dependency), toId);
     if (!connection.originModule) {
       info.isEntry ||= connection.dependency.type === "entry";
     } else if (importer) {
@@ -61,26 +92,33 @@ export function getModuleInfo(
 
 const moduleIndexes = new WeakMap<Compilation, { size: number; modules: Map<string, Module> }>();
 
-/** Module of a compilation by id (indexed again on a miss, if modules were added since). */
+/** Modules of a compilation by id (indexed again when modules were added or concatenated). */
+function indexModules(compilation: Compilation, toId: (resource: string) => string) {
+  let index = moduleIndexes.get(compilation);
+  if (index?.size === compilation.modules.size) {
+    return index.modules;
+  }
+  index = { size: compilation.modules.size, modules: new Map() };
+  for (const module of [...compilation.modules].flatMap(innerModules)) {
+    const id = moduleId(module, toId);
+    if (id && !index.modules.has(id)) {
+      index.modules.set(id, module);
+    }
+  }
+  moduleIndexes.set(compilation, index);
+  return index.modules;
+}
+
 function findModule(
   compilation: Compilation,
   id: string,
   toId: (resource: string) => string
 ): Module | undefined {
-  let index = moduleIndexes.get(compilation);
-  const module = index?.modules.get(id);
-  if (module || index?.size === compilation.modules.size) {
-    return module;
-  }
-  index = { size: compilation.modules.size, modules: new Map() };
-  for (const m of compilation.modules) {
-    const mid = moduleId(m, toId);
-    if (mid && !index.modules.has(mid)) {
-      index.modules.set(mid, m);
-    }
-  }
-  moduleIndexes.set(compilation, index);
-  return index.modules.get(id);
+  return moduleIndexes.get(compilation)?.modules.get(id) ?? indexModules(compilation, toId).get(id);
+}
+
+function innerModules(module: Module): Module[] {
+  return (module as { modules?: Module[] }).modules || [module];
 }
 
 function isDynamic(connection: { dependency: { type: string } }): boolean {
