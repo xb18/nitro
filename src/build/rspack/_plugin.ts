@@ -36,6 +36,7 @@ export class RollupPluginsHost implements RspackPluginInstance {
   readonly host: PluginHost;
   readonly virtual: VirtualPlaceholders;
   readonly resolver: ModuleResolver;
+  readonly toId = (resource: string): string => this.virtual.toId(resource);
   compiler?: Compiler;
   compilation?: Compilation;
   /** Assets emitted by plugins before the compilation processes its assets. */
@@ -54,9 +55,9 @@ export class RollupPluginsHost implements RspackPluginInstance {
     this.host = new PluginHost(nitro, plugins, {
       resolve: (source, importer, kind) => this.resolver.resolveWithRspack(source, importer, kind),
       getModuleIds: () =>
-        this.compilation ? compilationModuleIds(this.compilation, (r) => this.virtual.toId(r)) : [],
+        this.compilation ? compilationModuleIds(this.compilation, this.toId) : [],
       getModuleInfo: (id) =>
-        this.compilation ? getModuleInfo(this.compilation, id, (r) => this.virtual.toId(r)) : null,
+        this.compilation ? getModuleInfo(this.compilation, id, this.toId) : null,
       emitAsset: (fileName, source) => this.emitAsset(fileName, source),
     });
     this.resolver = new ModuleResolver({
@@ -76,10 +77,9 @@ export class RollupPluginsHost implements RspackPluginInstance {
       return this.host.buildStart();
     });
     compiler.hooks.done.tapPromise(NAME, () => this.host.closeBundle());
-    const toId = (resource: string) => this.virtual.toId(resource);
     compiler.hooks.afterEmit.tapPromise(NAME, async (compilation) => {
       this.assetsWritten = true;
-      await writeBundle(this.host, compilation, toId);
+      await writeBundle(this.host, compilation, this.toId);
     });
 
     const { Compilation } = compiler.rspack;
@@ -108,7 +108,7 @@ export class RollupPluginsHost implements RspackPluginInstance {
       if (this.host.hooks.generateBundle.length > 0) {
         compilation.hooks.processAssets.tapPromise(
           { name: NAME, stage: Compilation.PROCESS_ASSETS_STAGE_SUMMARIZE },
-          () => generateBundle(this.host, compilation, toId)
+          () => generateBundle(this.host, compilation, this.toId)
         );
       }
     });
@@ -146,7 +146,7 @@ export class RollupPluginsHost implements RspackPluginInstance {
     code: string,
     inputMap?: HookSourceMap
   ): Promise<{ code: string; map?: HookSourceMap | RawSourceMap }> {
-    const id = this.virtual.toId(loader.resource);
+    const id = this.toId(loader.resource);
     const ctxOpts = {
       addWatchFile: (file: string) => loader.addDependency(file),
       emitAsset: (fileName: string, source: AssetSource) =>

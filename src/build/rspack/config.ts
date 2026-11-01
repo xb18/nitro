@@ -65,7 +65,7 @@ export async function getRspackConfig(
 
   const entryFileName = rollup.entryFileName || "index.mjs";
   const chunkNames = new ChunkNames(nitro, {
-    toId: (resource) => pluginsHost.virtual.toId(resource),
+    toId: pluginsHost.toId,
     reserved: [entryFileName],
   });
   const chunkFilename = rollup.chunkFileName || chunkNames.filename;
