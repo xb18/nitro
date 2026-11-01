@@ -184,7 +184,9 @@ async function build(dir: string, plugin: Plugin) {
       chunkLoading: "import",
     },
     module: {
-      rules: [{ test: /\.mjs$/, enforce: "pre", loader: LOADER_PATH }],
+      rules: [
+        { test: /\.mjs$/, enforce: "pre", loader: LOADER_PATH, options: { host: pluginsHost } },
+      ],
     },
     plugins: [pluginsHost],
   });

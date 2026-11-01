@@ -124,6 +124,7 @@ export async function getRspackConfig(
         loaderRule({
           test: /\.[cm]?[jt]sx?$/,
           loader: LOADER_PATH,
+          host: pluginsHost,
           virtualDir: pluginsHost.virtual.dir,
           hooks: pluginsHost.host.hooks,
         }),

@@ -25,9 +25,6 @@ const NAME = "nitro:rollup-plugins";
 /** Loader running the `load` and `transform` hooks (see `runtime/internal/rspack/loader.mjs`). */
 export const LOADER_PATH: string = join(runtimeDir, "internal/rspack/loader.mjs");
 
-/** Compiler property the pre-loader finds the host with (`loader._compiler`). */
-const HOST_KEY = Symbol.for("nitro:rspack-host");
-
 /**
  * Rspack plugin running Nitro's build plugins (Rollup plugin interface):
  * - `resolveId` before Rspack resolves a request (virtual modules, externals, aliases).
@@ -71,7 +68,6 @@ export class RollupPluginsHost implements RspackPluginInstance {
   }
 
   apply(compiler: Compiler) {
-    (compiler as any)[HOST_KEY] = this;
     this.compiler = compiler;
     compiler.hooks.beforeCompile.tapPromise(NAME, () => {
       this.assetsCompilation = undefined;

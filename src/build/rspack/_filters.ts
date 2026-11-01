@@ -1,5 +1,6 @@
 import type { RuleSetRule, RuleSetUseItem } from "@rspack/core";
 import type { Filter, Hook } from "./_hooks.ts";
+import type { RollupPluginsHost } from "./_plugin.ts";
 import { isWindows } from "std-env";
 import { escapeRegExp } from "../../utils/regex.ts";
 
@@ -15,10 +16,11 @@ import { escapeRegExp } from "../../utils/regex.ts";
 export function loaderRule(opts: {
   test: RegExp;
   loader: string;
+  host: RollupPluginsHost;
   virtualDir: string;
   hooks: { load: Hook[]; transform: Hook[] };
 }): RuleSetRule {
-  const use: RuleSetUseItem = { loader: opts.loader };
+  const use: RuleSetUseItem = { loader: opts.loader, options: { host: opts.host } };
   const fallback: RuleSetRule = { test: opts.test, enforce: "pre", use: [use] };
   if (isWindows) {
     return fallback;
