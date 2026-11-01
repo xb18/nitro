@@ -36,10 +36,9 @@ export async function buildProduction(
     if (stats?.hasErrors()) {
       throw new Error(`Rspack build failed:\n${stats.toString("errors-only")}`);
     }
-    entryFileName = stats?.compilation.entrypoints
-      .get("index")
-      ?.getFiles()
-      .find((file) => /\.m?js$/.test(file));
+    // Split initial chunks (`_libs/*`) come first in the files of the entrypoint
+    const entryChunk = stats?.compilation.entrypoints.get("index")?.getEntrypointChunk();
+    entryFileName = [...(entryChunk?.files || [])].find((file) => /\.m?js$/.test(file));
   }
 
   // Build info only needs the entry chunk of the output
