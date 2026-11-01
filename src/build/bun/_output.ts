@@ -1,8 +1,8 @@
 import type { BunBuildArtifact } from "./_types.ts";
 import type { OutputAsset, OutputChunk, OutputOptions, RollupOutput } from "rollup";
 import { mkdir, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative } from "pathe";
-import type { PluginContainer } from "./_plugins.ts";
+import { basename, dirname, isAbsolute, join, relative } from "pathe";
+import { VIRTUAL_NAMESPACE, type PluginContainer } from "./_plugins.ts";
 
 type OutputBundle = Record<string, OutputChunk | OutputAsset>;
 
@@ -37,7 +37,10 @@ export async function writeOutput(
         moduleIds: opts.moduleIds(artifact.path),
       });
     } else {
-      const source = artifact.kind === "sourcemap" ? await artifact.text() : await artifact.bytes();
+      const source =
+        artifact.kind === "sourcemap"
+          ? relocateSources(container, await artifact.text(), dirname(join(opts.dir, fileName)))
+          : await artifact.bytes();
       bundle[fileName] = toAsset(fileName, source);
     }
   }
@@ -108,6 +111,26 @@ async function renderFileUrls(
 
 function toChunk(
   fileName: string,
+/**
+ * Bun writes the sources of source maps relative to the working directory, and virtual modules
+ * in its namespace: they are namespaced as `virtual:<id>` instead (same as `nitro:sourcemap`).
+ */
+function relocateSources(container: PluginContainer, code: string, dir: string): string {
+  const map = JSON.parse(code) as { sources?: string[] };
+  map.sources = map.sources?.map((source) => {
+    const id = container.moduleId(source);
+    if (isAbsolute(id) && !id.includes("\0")) {
+      return relative(dir, id);
+    }
+    if (!source.startsWith(`${VIRTUAL_NAMESPACE}:`)) {
+      return source;
+    }
+    const virtualId = id.replace(/^\0/, "");
+    return virtualId.startsWith("virtual:") ? virtualId : `virtual:${virtualId}`;
+  });
+  return JSON.stringify(map);
+}
+
   opts: { code: string; entry?: string; moduleIds: string[] }
 ): OutputChunk {
   return {

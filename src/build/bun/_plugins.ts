@@ -32,7 +32,7 @@ export interface PluginContainerOptions {
   onWarn: (message: string) => void;
 }
 
-const VIRTUAL_NAMESPACE = "nitro";
+export const VIRTUAL_NAMESPACE = "nitro";
 
 const JS_RE = /\.[cm]?[jt]sx?$/;
 
