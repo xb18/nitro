@@ -4,8 +4,7 @@ import { isAbsolute, resolve } from "pathe";
 
 const HOOK_ORDER = { pre: 0, post: 2 } as Record<string, number>;
 
-/** Hooks of Nitro's (Rollup) build plugins run by the `rspack` builder. */
-export const SUPPORTED_HOOKS = new Set([
+const HOOK_NAMES = [
   "buildStart",
   "resolveId",
   "load",
@@ -15,18 +14,12 @@ export const SUPPORTED_HOOKS = new Set([
   "generateBundle",
   "writeBundle",
   "closeBundle",
-]);
+] as const;
 
-export type HookName =
-  | "buildStart"
-  | "resolveId"
-  | "load"
-  | "transform"
-  | "buildEnd"
-  | "renderChunk"
-  | "generateBundle"
-  | "writeBundle"
-  | "closeBundle";
+export type HookName = (typeof HOOK_NAMES)[number];
+
+/** Hooks of Nitro's (Rollup) build plugins run by the `rspack` builder. */
+export const SUPPORTED_HOOKS: ReadonlySet<string> = new Set(HOOK_NAMES);
 
 export type Hook = { plugin: Plugin; handler: (...args: any[]) => any; filter?: any };
 
