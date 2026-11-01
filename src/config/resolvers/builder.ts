@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { consola } from "consola";
 import type { NitroOptions } from "nitro/types";
 import { resolve } from "pathe";
-import { assertBunRuntime } from "../../build/bun/_bundle.ts";
+import { assertBunRuntime } from "../../build/bun/_runtime.ts";
 import { resolveRolldown } from "../../build/rolldown/_import.ts";
 import { ensureDep, isDepInstalled } from "../../utils/dep.ts";
 

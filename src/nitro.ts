@@ -92,10 +92,13 @@ function callRollupBeforeHooks(nitro: Nitro, config: NitroBuildConfig) {
       if (fns.length === 0) {
         return;
       }
-      if (!config.rollup && !config.rolldown) {
-        nitro.logger.warn(
-          `The deprecated \`rollup:before\` hook is not called with the \`${config.builder}\` builder. Use \`build:config\` instead.`
-        );
+      if (config.bun) {
+        if (!_rollupBeforeWarned) {
+          _rollupBeforeWarned = true;
+          nitro.logger.warn(
+            "The deprecated `rollup:before` hook is not called with the `bun` builder. Use `build:config` instead."
+          );
+        }
         return;
       }
       if (!_rollupBeforeWarned) {

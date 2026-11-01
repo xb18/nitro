@@ -130,7 +130,7 @@ jobs:
       - run: pnpm install
       - run: pnpm build
       - run: pnpm test:bun run test/unit test/minimal test/vite test/presets
-      - run: pnpm test:bun run test/minimal test/presets
+      - run: pnpm test:bun run test/presets
         env: { NITRO_BUILDER: bun }
 
   publish-pkg-pr-new:

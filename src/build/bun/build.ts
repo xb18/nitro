@@ -1,6 +1,6 @@
 import type { Nitro } from "nitro/types";
 import { getBunConfig } from "./config.ts";
-import { assertBunRuntime } from "./_bundle.ts";
+import { assertBunRuntime } from "./_runtime.ts";
 import { watchDev } from "./dev.ts";
 import { buildProduction } from "./prod.ts";
 
