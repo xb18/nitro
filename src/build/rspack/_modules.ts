@@ -27,13 +27,7 @@ export function getModuleInfo(
   id: string,
   toId: (resource: string) => string
 ): ModuleInfo | null {
-  let module: Module | undefined;
-  for (const m of compilation.modules) {
-    if (moduleId(m, toId) === id) {
-      module = m;
-      break;
-    }
-  }
+  const module = findModule(compilation, id, toId);
   if (!module) {
     return null;
   }
@@ -63,6 +57,30 @@ export function getModuleInfo(
     }
   }
   return info;
+}
+
+const moduleIndexes = new WeakMap<Compilation, { size: number; modules: Map<string, Module> }>();
+
+/** Module of a compilation by id (indexed again on a miss, if modules were added since). */
+function findModule(
+  compilation: Compilation,
+  id: string,
+  toId: (resource: string) => string
+): Module | undefined {
+  let index = moduleIndexes.get(compilation);
+  const module = index?.modules.get(id);
+  if (module || index?.size === compilation.modules.size) {
+    return module;
+  }
+  index = { size: compilation.modules.size, modules: new Map() };
+  for (const m of compilation.modules) {
+    const mid = moduleId(m, toId);
+    if (mid && !index.modules.has(mid)) {
+      index.modules.set(mid, m);
+    }
+  }
+  moduleIndexes.set(compilation, index);
+  return index.modules.get(id);
 }
 
 function isDynamic(connection: { dependency: { type: string } }): boolean {
