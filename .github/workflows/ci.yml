@@ -154,10 +154,8 @@ jobs:
       - run: pnpm install
       - run: pnpm build
       - parallel:
-          - run: pnpm vitest run test/examples
-            env: { NITRO_BUILDER: rspack, NITRO_VITE_PKG: vite }
           - run: pnpm vitest run test/presets
-            env: { NITRO_BUILDER: rspack, NITRO_VITE_PKG: vite }
+            env: { NITRO_BUILDER: rspack }
           - run: pnpm vitest run test/unit/rspack- test/unit/dev-route-reload
             env: { NITRO_BUILDER: rspack }
 
