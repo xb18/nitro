@@ -4,8 +4,10 @@ import type { Plugin } from "rollup";
 type RollupLikeConfig = {
   plugins?: unknown;
   external?: unknown;
+  platform?: string;
   output?: {
     entryFileNames?: unknown;
+    chunkFileNames?: unknown;
     format?: string;
     inlineDynamicImports?: boolean;
     banner?: unknown;
@@ -17,7 +19,9 @@ type RollupLikeConfig = {
  * Options of `rollupConfig` and `rolldownConfig` (which takes precedence) supported by the `bun`
  * builder. Presets set them for every builder (e.g. plugins or the entry file name).
  */
-export function fromRollupConfig(nitro: Nitro): { config: BunConfig; plugins: Plugin[] } {
+export async function fromRollupConfig(
+  nitro: Nitro
+): Promise<{ config: BunConfig; plugins: Plugin[] }> {
   const configs = [nitro.options.rolldownConfig, nitro.options.rollupConfig] as (
     | RollupLikeConfig
     | undefined
@@ -28,13 +32,21 @@ export function fromRollupConfig(nitro: Nitro): { config: BunConfig; plugins: Pl
   const format = output("format") as string | undefined;
   const inlineDynamicImports = output("inlineDynamicImports") ?? nitro.options.inlineDynamicImports;
   const entryFileNames = output("entryFileNames");
+  const chunkFileNames = output("chunkFileNames");
 
   const config: BunConfig = {
     format: format === "iife" ? "iife" : format === "cjs" || format === "commonjs" ? "cjs" : "esm",
     splitting: !inlineDynamicImports && format !== "iife",
   };
-  if (typeof entryFileNames === "string") {
-    config.naming = { entry: entryFileNames };
+  // e.g. Cloudflare with Node.js compatibility (Bun has no `neutral` target)
+  if (nitro.options.rolldownConfig?.platform === "node") {
+    config.target = "node";
+  }
+  if (typeof entryFileNames === "string" || typeof chunkFileNames === "string") {
+    config.naming = {
+      entry: typeof entryFileNames === "string" ? entryFileNames : undefined,
+      chunk: typeof chunkFileNames === "string" ? chunkFileNames : undefined,
+    };
   }
   for (const key of ["banner", "footer"] as const) {
     const value = output(key);
@@ -43,15 +55,18 @@ export function fromRollupConfig(nitro: Nitro): { config: BunConfig; plugins: Pl
     }
   }
 
-  const plugins = configs.flatMap((config) => flatPlugins(config?.plugins));
-  const externals = configs.map((config) => externalPlugin(config?.external)).filter(Boolean);
+  const plugins = await Promise.all(configs.map((config) => flatPlugins(config?.plugins)));
+  const external = externalPlugin(
+    configs.map((config) => config?.external).find((value) => value !== undefined)
+  );
 
-  return { config, plugins: [...(externals as Plugin[]), ...plugins] };
+  return { config, plugins: [...(external ? [external] : []), ...plugins.flat()] };
 }
 
-function flatPlugins(plugins: unknown): Plugin[] {
+async function flatPlugins(plugins: unknown): Promise<Plugin[]> {
+  plugins = await plugins;
   if (Array.isArray(plugins)) {
-    return plugins.flatMap((plugin) => flatPlugins(plugin));
+    return (await Promise.all(plugins.map((plugin) => flatPlugins(plugin)))).flat();
   }
   return plugins && typeof plugins === "object" ? [plugins as Plugin] : [];
 }
