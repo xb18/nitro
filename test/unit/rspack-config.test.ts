@@ -44,7 +44,7 @@ async function rspackConfig(config: NitroConfig) {
   return { config: result, warnings: warn.mock.calls.map((call) => String(call[0])) };
 }
 
-describe.skipIf(!isRspack)("rspack: rollupConfig options", () => {
+describe("rspack: rollupConfig options", () => {
   it("maps output file names, code splitting and source map options", async () => {
     const { config, warnings } = await rspackConfig({
       sourcemap: true,
@@ -113,7 +113,7 @@ describe.skipIf(!isRspack)("rspack: rollupConfig options", () => {
     }
   });
 
-  it("applies `banner`, `footer`, `intro`, `outro` and `external`", async () => {
+  it.skipIf(!isRspack)("applies `banner`, `footer`, `intro`, `outro` and `external`", async () => {
     const rootDir = createApp({
       "server.ts": [
         `import value from "external-pkg";`,
@@ -155,7 +155,7 @@ describe.skipIf(!isRspack)("rspack: rollupConfig options", () => {
   });
 });
 
-describe.skipIf(!isRspack)("rspack: rspackConfig", () => {
+describe("rspack: rspackConfig", () => {
   it.each([
     ["an object", { "user-pkg": "user-pkg" }],
     ["a function", () => undefined],
