@@ -48,8 +48,15 @@ export interface BunBuildOutput {
   logs: BunBuildMessage[];
   metafile?: {
     inputs: Record<string, unknown>;
-    outputs: Record<string, { inputs: Record<string, unknown> }>;
+    outputs: Record<string, BunMetafileOutput>;
   };
+}
+
+export interface BunMetafileOutput {
+  inputs: Record<string, unknown>;
+  imports?: { path: string; kind: string; external?: boolean }[];
+  exports?: string[];
+  entryPoint?: string;
 }
 
 type BunMaybePromise<T> = T | Promise<T>;

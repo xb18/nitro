@@ -1,4 +1,4 @@
-import type { BunBuildArtifact } from "./_types.ts";
+import type { BunBuildArtifact, BunMetafileOutput } from "./_types.ts";
 import type { OutputAsset, OutputChunk, OutputOptions, RollupOutput } from "rollup";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative } from "pathe";
@@ -10,7 +10,8 @@ const PRAGMA_RE = /^\/\/ @bun\b.*\n/;
 
 const FILE_URL_RE = /import\.meta\.ROLLUP_FILE_URL_(\w+)/g;
 
-const NUL_ESCAPE_RE = /(?<!\\)((?:\\\\)*)\\x00(?!\d)/g;
+// Ids start with `\0` (only replaced at the start of strings, not in raw template literals)
+const NUL_ESCAPE_RE = /(?<=["'])\\x00(?!\d)/g;
 
 /**
  * Writes the in-memory Bun build output to `dir`, calling the output hooks of the plugins
@@ -20,23 +21,28 @@ export async function writeOutput(
   container: PluginContainer,
   opts: {
     outputs: BunBuildArtifact[];
-    moduleIds: (path: string) => string[];
+    /** Metafile output of an artifact (by path). */
+    meta: (path: string) => BunMetafileOutput | undefined;
     dir: string;
-    entry: string;
+    format: "es" | "cjs" | "iife";
     sourcemap: boolean;
   }
 ): Promise<RollupOutput> {
-  const outputOptions = { dir: opts.dir, format: "es", sourcemap: opts.sourcemap } as OutputOptions;
+  const outputOptions = {
+    dir: opts.dir,
+    format: opts.format,
+    sourcemap: opts.sourcemap,
+  } as OutputOptions;
 
   const bundle: OutputBundle = {};
   for (const artifact of opts.outputs) {
     const fileName = artifact.path.replace(/^\.\//, "");
     if (artifact.kind === "entry-point" || artifact.kind === "chunk") {
-      bundle[fileName] = toChunk(fileName, {
-        // Rollup plugins match `\0` ids in the output, which Bun writes as `\x00` (not `\\x00`)
-        code: (await artifact.text()).replace(NUL_ESCAPE_RE, "$1\\0"),
-        entry: artifact.kind === "entry-point" ? opts.entry : undefined,
-        moduleIds: opts.moduleIds(artifact.path),
+      bundle[fileName] = toChunk(container, fileName, {
+        // Rollup plugins match `\0` ids in the output, which Bun writes as `\x00`
+        code: (await artifact.text()).replace(NUL_ESCAPE_RE, "\\0"),
+        isEntry: artifact.kind === "entry-point",
+        meta: opts.meta(artifact.path),
       });
     } else {
       const source =
@@ -47,20 +53,30 @@ export async function writeOutput(
     }
   }
 
+  // Assets emitted by `generateBundle` hooks are added after them (others can be deleted)
+  const emitted = new Set<string>();
   const emitAssets = () => {
-    for (const { fileName, source } of container.emittedFiles.values()) {
-      bundle[fileName] ??= toAsset(fileName, source);
+    for (const [referenceId, { fileName, source }] of container.emittedFiles) {
+      if (!emitted.has(referenceId)) {
+        emitted.add(referenceId);
+        bundle[fileName] ??= toAsset(fileName, source);
+      }
     }
   };
   emitAssets();
 
   const chunks = Object.values(bundle).filter((output) => output.type === "chunk");
   const meta = { chunks: Object.fromEntries(chunks.map((chunk) => [chunk.fileName, chunk])) };
+  // Source maps returned by `renderChunk` hooks are not used: they do not need to generate them
+  const renderOptions = { ...outputOptions, sourcemap: false };
   for (const chunk of chunks) {
     // Bun only reads the pragma of bundled files (e.g. `// @bun`) on the first line
     const pragma = PRAGMA_RE.exec(chunk.code)?.[0] || "";
-    chunk.code = await renderFileUrls(container, chunk.code.slice(pragma.length), chunk.fileName);
-    chunk.code = await container.renderChunk(chunk.code, [chunk, outputOptions, meta]);
+    chunk.code = await renderFileUrls(container, chunk.code.slice(pragma.length), {
+      chunkId: chunk.fileName,
+      format: opts.format,
+    });
+    chunk.code = await container.renderChunk(chunk.code, [chunk, renderOptions, meta]);
     chunk.code = pragma + chunk.code;
   }
 
@@ -84,7 +100,7 @@ export async function writeOutput(
 async function renderFileUrls(
   container: PluginContainer,
   code: string,
-  chunkFileName: string
+  opts: { chunkId: string; format: string }
 ): Promise<string> {
   let rendered = "";
   let index = 0;
@@ -94,13 +110,13 @@ async function renderFileUrls(
     if (!file) {
       continue;
     }
-    let relativePath = relative(dirname(chunkFileName), file.fileName);
+    let relativePath = relative(dirname(opts.chunkId), file.fileName);
     relativePath = relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
     const url =
       (await container.resolveFileUrl({
-        chunkId: chunkFileName,
+        chunkId: opts.chunkId,
         fileName: file.fileName,
-        format: "es",
+        format: opts.format,
         moduleId: null,
         referenceId,
         relativePath,
@@ -132,9 +148,16 @@ function relocateSources(container: PluginContainer, code: string, dir: string):
 }
 
 function toChunk(
+  container: PluginContainer,
   fileName: string,
-  opts: { code: string; entry?: string; moduleIds: string[] }
+  opts: { code: string; isEntry: boolean; meta?: BunMetafileOutput }
 ): OutputChunk {
+  const { meta } = opts;
+  const imports = (kind: string) =>
+    (meta?.imports || [])
+      .filter((entry) => (entry.kind === "dynamic-import") === (kind === "dynamic-import"))
+      .map((entry) => (entry.external ? entry.path : entry.path.replace(/^\.\//, "")));
+  const facadeModuleId = meta?.entryPoint ? container.moduleId(meta.entryPoint) : null;
   return {
     type: "chunk",
     fileName,
@@ -143,15 +166,15 @@ function toChunk(
     code: opts.code,
     map: null,
     sourcemapFileName: null,
-    isEntry: !!opts.entry,
-    isDynamicEntry: false,
+    isEntry: opts.isEntry,
+    isDynamicEntry: !opts.isEntry && !!facadeModuleId,
     isImplicitEntry: false,
-    facadeModuleId: opts.entry || null,
-    moduleIds: opts.moduleIds,
+    facadeModuleId,
+    moduleIds: Object.keys(meta?.inputs || {}).map((input) => container.moduleId(input)),
     modules: {},
-    exports: [],
-    imports: [],
-    dynamicImports: [],
+    exports: meta?.exports || [],
+    imports: imports("import-statement"),
+    dynamicImports: imports("dynamic-import"),
     importedBindings: {},
     implicitlyLoadedBefore: [],
     referencedFiles: [],

@@ -28,30 +28,26 @@ export async function bundle(
   await container.buildEnd();
 
   for (const log of result.logs) {
-    nitro.logger.warn(formatLog(log));
+    if (log.level === "warning" || log.level === "error") {
+      nitro.logger.warn(formatLog(log));
+    } else {
+      nitro.logger.debug(formatLog(log));
+    }
   }
-
-  const toModuleIds = (inputs: Record<string, unknown> = {}) =>
-    Object.keys(inputs).map((input) => container.moduleId(input));
 
   const output = await writeOutput(container, {
     outputs: result.outputs,
-    moduleIds: (path) => toModuleIds(result.metafile?.outputs[path]?.inputs),
+    meta: (path) => result.metafile?.outputs[path],
     dir: nitro.options.output.serverDir,
-    entry: nitro.options.entry,
+    format: config.format === "cjs" || config.format === "iife" ? config.format : "es",
     sourcemap: !!nitro.options.sourcemap,
   });
 
-  const inputs = [...toModuleIds(result.metafile?.inputs), ...container.watchFiles];
+  const inputs = [
+    ...Object.keys(result.metafile?.inputs || {}).map((input) => container.moduleId(input)),
+    ...container.watchFiles,
+  ];
   return { output, inputs: inputs.filter((id) => isFile(id)) };
-}
-
-export function assertBunRuntime() {
-  if (!process.versions.bun) {
-    throw new Error(
-      "The `bun` builder requires the Bun runtime. Run Nitro with Bun (e.g. `bun --bun nitro build`) or use another builder."
-    );
-  }
 }
 
 function getBun() {
