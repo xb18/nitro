@@ -1,10 +1,10 @@
 import type { Nitro, NitroBuildPluginOption, RspackConfig } from "nitro/types";
 import type { Configuration, ExternalItemFunctionData, RuleSetRule } from "@rspack/core";
 import type { Plugin } from "rollup";
-import { builtinModules } from "node:module";
 import { defu } from "defu";
 import { unwasmRspack } from "unwasm/plugin/rspack";
 import { baseBuildConfig } from "../config.ts";
+import { builtins } from "../plugins/builtins.ts";
 import { excludeSourcemapSources } from "../plugins/sourcemap.ts";
 import { baseBuildPlugins, flatPlugins, withBuildPlugins } from "../plugins.ts";
 import { LOADER_PATH, RollupPluginsHost } from "./_plugin.ts";
@@ -34,15 +34,28 @@ export async function getRspackConfig(
     rollupConfigs.flatMap((config) => (config?.plugins as NitroBuildPluginOption[]) || [])
   );
 
-  // Builtins aliased to polyfills are bundled
-  const builtins = [...builtinModules, ...builtinModules.map((m) => `node:${m}`)].filter(
-    (id) => !base.env.alias[id] || base.env.alias[id].startsWith("node:")
-  );
+  // Builtins aliased to polyfills are bundled, and ids aliased to another `node:` id (e.g. `events`
+  // or `buffer/`) are externalized with that id
+  const externals = new Map(base.env.external.map((id) => [id, id]));
+  for (const id of builtins) {
+    if (!base.env.alias[id] || base.env.alias[id] === id) {
+      externals.set(id, id);
+    }
+  }
+  for (const [id, to] of Object.entries(base.env.alias)) {
+    if (to !== id && to.startsWith("node:")) {
+      externals.set(id, to);
+    }
+  }
 
   const pluginsHost = new RollupPluginsHost(
     nitro,
     [...rollupConfigPlugins, ...(await withBuildPlugins(nitro, plugins))] as Plugin[],
-    { externals: [...base.env.external, ...builtins], isExternal: rollup.isExternal }
+    {
+      externals,
+      runtimeBuiltins: base.env.external.filter((id) => id.startsWith("node:")),
+      isExternal: rollup.isExternal,
+    }
   );
 
   const entryFileName = rollup.entryFileName || "index.mjs";

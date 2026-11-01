@@ -22,8 +22,10 @@ export interface ModuleResolverOptions {
   virtual: VirtualPlaceholders;
   /** Compiler (to resolve with Rspack). */
   compiler: () => Compiler | undefined;
-  /** Externals that are not resolved (builtins and `external` of the preset). */
-  externals?: string[];
+  /** Externals that are not resolved, by request (builtins, aliases of builtins and `external` of the preset). */
+  externals?: Map<string, string>;
+  /** `node:` builtins the runtime provides (`external` of the preset). */
+  runtimeBuiltins?: string[];
   /** `external` option of `rollupConfig` (matched before the request is resolved). */
   isExternal?: (source: string, importer: string | undefined) => Promise<boolean>;
 }
@@ -31,8 +33,10 @@ export interface ModuleResolverOptions {
 /** Resolution of the build plugins (`resolveId`) and externals, cached per compilation. */
 export class ModuleResolver {
   readonly opts: ModuleResolverOptions;
-  /** Externals that are not resolved (builtins and `external` of the preset). */
-  readonly staticExternals: Set<string>;
+  /** Externals that are not resolved, by request (builtins, aliases of builtins and `external` of the preset). */
+  readonly staticExternals: Map<string, string>;
+  /** `node:` builtins the runtime provides. */
+  readonly runtimeBuiltins: Set<string>;
   /** `resolveId` results by issuer and request, shared by `externals` and `beforeResolve`. */
   resolveCache = new Map<string, Promise<ResolvedId | undefined>>();
   /** `unresolvedExternal` results by resolve directory and request. */
@@ -40,7 +44,8 @@ export class ModuleResolver {
 
   constructor(opts: ModuleResolverOptions) {
     this.opts = opts;
-    this.staticExternals = new Set(opts.externals);
+    this.staticExternals = opts.externals || new Map();
+    this.runtimeBuiltins = new Set(opts.runtimeBuiltins);
   }
 
   clear() {
@@ -55,10 +60,10 @@ export class ModuleResolver {
       return;
     }
     const kind: ImportKind = dependencyType === "commonjs" ? "require-call" : "import-statement";
-    let id: string | undefined;
-    if (this.staticExternals.has(request)) {
+    let id = this.staticExternals.get(request);
+    if (id) {
       // Like the externals plugin (workerd only resolves builtins by their `node:` id)
-      id = isBareBuiltin(request) ? `node:${request}` : request;
+      id = isBareBuiltin(id) ? `node:${id}` : id;
     } else if (
       this.opts.isExternal &&
       (await this.opts.isExternal(
@@ -80,9 +85,10 @@ export class ModuleResolver {
       if (this.opts.host.nitro.options.node) {
         return `node-commonjs ${id.startsWith("file:") ? fileURLToPath(id) : id}`;
       }
-      // Externals are ES modules: the default export of a builtin is its `module.exports`
+      // Externals are ES modules: the default export of a builtin is its `module.exports`. Other
+      // builtins are kept as a `require()` call, so that a guarded one only fails when called.
       if (id.startsWith("node:")) {
-        return [id, "default"];
+        return this.runtimeBuiltins.has(id) ? [id, "default"] : `commonjs ${id}`;
       }
     }
     return id;

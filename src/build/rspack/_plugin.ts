@@ -51,7 +51,7 @@ export class RollupPluginsHost implements RspackPluginInstance {
   constructor(
     nitro: Nitro,
     plugins: Plugin[],
-    opts: Pick<ModuleResolverOptions, "externals" | "isExternal"> = {}
+    opts: Pick<ModuleResolverOptions, "externals" | "runtimeBuiltins" | "isExternal"> = {}
   ) {
     this.virtual = new VirtualPlaceholders(join(nitro.options.buildDir, "rspack/virtual"));
     this.host = new PluginHost(nitro, plugins, {
