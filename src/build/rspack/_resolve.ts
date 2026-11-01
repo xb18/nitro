@@ -1,5 +1,6 @@
 import type { Compiler, ExternalItemFunctionData } from "@rspack/core";
 import { builtinModules } from "node:module";
+import { normalize as nativeNormalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname, isAbsolute } from "pathe";
 import type { PluginHost } from "./_host.ts";
@@ -147,7 +148,8 @@ export class ModuleResolver {
     });
     return new Promise<string | undefined>((resolve) => {
       resolver.resolve({}, this.resolveDir(importer), source, {}, (error, result) => {
-        resolve(error || !result ? undefined : result);
+        // Module ids have native separators (like with Rollup), Rspack keeps the `/` of `C:/` on Windows
+        resolve(error || !result ? undefined : nativeNormalize(result));
       });
     });
   }
